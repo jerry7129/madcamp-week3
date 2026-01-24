@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 # 로컬 도커 MySQL 연결 주소 (비밀번호 root 기준)
 # 만약 비밀번호가 다르면 'root:내비밀번호' 로 수정하세요.
+# SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:root@127.0.0.1:3306/gptsovits_db"
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:root@db:3306/gptsovits_db"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)

@@ -23,20 +23,17 @@ class UserResponse(BaseModel):
 class TeamCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    admin_username: str  # 관리자 확인용 (임시)
 
 # 매치 등록할 때 받을 데이터
 class MatchCreate(BaseModel):
     title: str
     team_a_id: int
     team_b_id: int
-    admin_username: str # 관리자 확인용
 
 # 경기 결과 결정할 때 받을 데이터
 class MatchResultDecide(BaseModel):
     match_id: int
     winner_team_id: int
-    admin_username: str # 관리자 확인용
 
 # 투표(베팅) 요청 데이터
 class VoteCreate(BaseModel):
@@ -63,3 +60,8 @@ class TTSRequest(BaseModel):
     username: str        # 사용자 (소비자)
     voice_model_id: int  # 사용할 모델 ID
     text: str            # 변환할 텍스트
+
+# 토큰 응답용
+class Token(BaseModel):
+    access_token: str
+    token_type: str

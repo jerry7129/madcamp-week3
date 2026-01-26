@@ -2,14 +2,15 @@ import shutil
 import os
 import uuid
 import requests
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
 from database import engine, get_db
 from datetime import datetime, timedelta
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 
 # DB 테이블 생성 (없으면 자동 생성)
 models.Base.metadata.create_all(bind=engine)
@@ -23,6 +24,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30 # 토큰 유효기간 30분
 
 # 토큰을 받을 경로 지정 (Swagger UI에서 로그인할 주소)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# 정적 파일(이미지, 오디오) 제공 설정
+# localhost:8000/static/audio/output_12345.mp3 로 접근 가능
+os.makedirs("static/audio", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 토큰 생성 함수 (출입증 발급기)
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
@@ -425,51 +431,51 @@ SHARED_DIR = os.getenv("SHARED_DIR", "/shared")
 @app.post("/tts/clone")
 async def tts_clone(
     audio_file: UploadFile = File(...),      # 1. 유저 목소리 파일
-    ref_text: str = Form(...),               # 2. 그 목소리가 말하고 있는 내용 (중요!)
+    ref_text: str = Form(...),               # 2. 그 목소리가 말하고 있는 내용
     target_text: str = Form(...),            # 3. AI가 말해야 할 새로운 내용
     db: Session = Depends(get_db)
 ):
-    # --- 1. 파일 저장 (공유 폴더) ---
-    # 파일명 충돌 방지를 위해 랜덤 UUID 사용
+    # --- 1. 유저가 보낸 파일 저장 (공유 폴더) ---
     filename = f"{uuid.uuid4()}.wav"
-    file_path = os.path.join(SHARED_DIR, filename)
+    file_path = os.path.join(SHARED_DIR, filename) # SHARED_DIR은 위에서 정의되어 있어야 함
     
+    # [수정] 여기서는 유저 파일만 저장해야 합니다.
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(audio_file.file, buffer)
         
     # --- 2. AI 서버에 요청 ---
-    # 중요: AI 서버도 도커 내부의 "/shared/..." 경로를 볼 수 있음
     payload = {
-        "text": target_text,                   # 읽을 내용
-        "text_lang": "ko",                     # 한국어
-        "ref_audio_path": file_path,           # [핵심] 방금 저장한 파일 경로
-        "prompt_text": ref_text,               # 참고 오디오의 텍스트 내용
-        "prompt_lang": "ko",                   # 참고 오디오 언어
+        "text": target_text,
+        "text_lang": "ko",
+        "ref_audio_path": file_path,           # 방금 저장한 파일 경로 전달
+        "prompt_text": ref_text,
+        "prompt_lang": "ko",
         "text_split_method": "cut5",
         "speed_factor": 1.0
     }
     
     try:
-        # AI 서버 주소 (docker-compose 환경변수 사용 권장)
-        ai_url = "http://gpt-sovits:9880" 
+        # AI 서버 주소 (docker-compose 서비스명 사용)
+        ai_url = "http://gpt-sovits:9880"
         
-        # AI에게 합성 요청
+        # [수정] /tts 엔드포인트 정확히 지정
         response = requests.post(f"{ai_url}/tts", json=payload)
         
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="AI 변환 실패")
             
         # --- 3. 결과물 저장 및 반환 ---
-        # 결과물(WAV)을 다시 파일로 저장해서 프론트에 URL로 줄지,
-        # 아니면 바이너리 그대로 스트리밍할지 결정 (여기선 파일 저장 방식)
         output_filename = f"result_{filename}"
-        output_path = os.path.join("static/audio", output_filename) # static 폴더 필요
         
+        # 저장할 폴더 확인 및 생성
+        save_dir = "static/audio"
+        os.makedirs(save_dir, exist_ok=True)
+        
+        output_path = os.path.join(save_dir, output_filename)
+        
+        # [수정] AI가 보내준 결과물(response.content)을 저장
         with open(output_path, "wb") as f:
             f.write(response.content)
-
-        # (선택) 임시 업로드 파일 삭제 (용량 관리)
-        # os.remove(file_path) 
 
         return {
             "msg": "생성 성공",
@@ -477,5 +483,5 @@ async def tts_clone(
         }
 
     except Exception as e:
-        print(e)
+        print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

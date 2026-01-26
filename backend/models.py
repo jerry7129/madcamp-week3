@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, TIMESTAMP, text, ForeignKey, Boolean, Text
+from sqlalchemy import Column, Integer, String, TIMESTAMP, text, ForeignKey, Boolean, Text, DateTime
 from database import Base
 from sqlalchemy import ForeignKey
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -77,3 +78,20 @@ class TTSHistory(Base):
     audio_url = Column(String(500), nullable=False)
     cost_credit = Column(Integer, default=0)
     created_at = Column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
+
+class VoiceModel(Base):
+    __tablename__ = "voice_models"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"))  # ⭐ 누가 만들었나 (User ID 연결)
+    
+    name = Column(String(50), nullable=False)        # 모델 별명 (예: "차분한 톤")
+    description = Column(String(200), nullable=True) # 설명
+    
+    audio_path = Column(String(255), nullable=False) # 원본 녹음 파일 경로
+    ref_text = Column(String(500), nullable=False)   # 학습 시 읽은 텍스트
+    
+    is_public = Column(Boolean, default=False)       # ⭐ 공유 여부 (True면 남들도 씀)
+    usage_count = Column(Integer, default=0)         # 사용 횟수
+    
+    created_at = Column(DateTime, default=datetime.now)

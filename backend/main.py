@@ -362,7 +362,7 @@ async def generate_tts(
     db: Session = Depends(get_db)
 ):
     COST = 50           # 1회 생성 비용
-    FEE_PERCENT = 0.10  # 플랫폼 수수료 10%
+    FEE_PERCENT = 0.80  # 플랫폼 수수료 80%
 
     # 1. 모델 확인
     voice_model = db.query(models.VoiceModel).filter(models.VoiceModel.id == request.voice_model_id).first()

@@ -10,8 +10,11 @@ services:
       - db
       - gpt-sovits
     restart: always
+    volumes:
+      - ./temp_shared:/shared
     environment:
       - GPT_SOVITS_URL=http://gpt-sovits:9800
+      - SHARED_DIR=/shared # 백엔드가 파일 저장할 경로
 
   # 2. MySQL 데이터베이스
   db:
@@ -37,6 +40,7 @@ services:
     volumes:
       # [핵심] Conda에서 쓰던 폴더를 도커 내부 /workspace로 연결
       - ../GPT-SoVITS:/workspace
+      - ./temp_shared:/shared
     deploy:
       resources:
         reservations:

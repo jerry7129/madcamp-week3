@@ -8,7 +8,10 @@ services:
       - "80:8000"
     depends_on:
       - db
+      - gpt-sovits
     restart: always
+    environment:
+      - GPT_SOVITS_URL=http://gpt-sovits:9800
 
   # 2. MySQL 데이터베이스
   db:
@@ -23,3 +26,23 @@ services:
     expose:
       - "3306"
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # 3. GPT-SoVITS (AI 엔진)
+  gpt-sovits:
+    image: gpt-sovits-custom # 이미지 이름 지정
+    shm_size: 16G         # [중요] AI 모델은 공유 메모리가 많이 필요함
+    ports:
+      - "9880:9880"       # 내부 API 통신용
+      - "9874:9874"       # (선택) 필요시 WebUI용 포트도 열어둠
+    volumes:
+      # [핵심] Conda에서 쓰던 폴더를 도커 내부 /workspace로 연결
+      - ../GPT-SoVITS:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia  # GPU 사용 설정 (필수)
+              count: 1
+              capabilities: [gpu]
+    # 도커가 켜질 때 실행할 명령어 (API 서버 실행)
+    command: python api_v2.py -a 0.0.0.0 -p 9880

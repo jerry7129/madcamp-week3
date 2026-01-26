@@ -1,4 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+import shutil
+import os
+import uuid
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import models, schemas
@@ -414,3 +417,64 @@ def generate_tts(req: schemas.TTSRequest, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"오류 발생: {e}")
+
+# 공유 폴더 경로 (도커 내부 경로)
+SHARED_DIR = os.getenv("SHARED_DIR", "/shared")
+
+@app.post("/tts/clone")
+async def tts_clone(
+    audio_file: UploadFile = File(...),      # 1. 유저 목소리 파일
+    ref_text: str = Form(...),               # 2. 그 목소리가 말하고 있는 내용 (중요!)
+    target_text: str = Form(...),            # 3. AI가 말해야 할 새로운 내용
+    db: Session = Depends(get_db)
+):
+    # --- 1. 파일 저장 (공유 폴더) ---
+    # 파일명 충돌 방지를 위해 랜덤 UUID 사용
+    filename = f"{uuid.uuid4()}.wav"
+    file_path = os.path.join(SHARED_DIR, filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(audio_file.file, buffer)
+        
+    # --- 2. AI 서버에 요청 ---
+    # 중요: AI 서버도 도커 내부의 "/shared/..." 경로를 볼 수 있음
+    payload = {
+        "text": target_text,                   # 읽을 내용
+        "text_lang": "ko",                     # 한국어
+        "ref_audio_path": file_path,           # [핵심] 방금 저장한 파일 경로
+        "prompt_text": ref_text,               # 참고 오디오의 텍스트 내용
+        "prompt_lang": "ko",                   # 참고 오디오 언어
+        "text_split_method": "cut5",
+        "speed_factor": 1.0
+    }
+    
+    try:
+        # AI 서버 주소 (docker-compose 환경변수 사용 권장)
+        ai_url = "http://gpt-sovits:9880" 
+        
+        # AI에게 합성 요청
+        response = requests.post(f"{ai_url}/", json=payload)
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="AI 변환 실패")
+            
+        # --- 3. 결과물 저장 및 반환 ---
+        # 결과물(WAV)을 다시 파일로 저장해서 프론트에 URL로 줄지,
+        # 아니면 바이너리 그대로 스트리밍할지 결정 (여기선 파일 저장 방식)
+        output_filename = f"result_{filename}"
+        output_path = os.path.join("static/audio", output_filename) # static 폴더 필요
+        
+        with open(output_path, "wb") as f:
+            f.write(response.content)
+
+        # (선택) 임시 업로드 파일 삭제 (용량 관리)
+        # os.remove(file_path) 
+
+        return {
+            "msg": "생성 성공",
+            "audio_url": f"/static/audio/{output_filename}"
+        }
+
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))

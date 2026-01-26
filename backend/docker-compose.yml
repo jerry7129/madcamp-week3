@@ -12,6 +12,7 @@ services:
     restart: always
     volumes:
       - ./temp_shared:/shared
+      - ./static:/backend/static
     environment:
       - GPT_SOVITS_URL=http://gpt-sovits:9880
       - SHARED_DIR=/shared # 백엔드가 파일 저장할 경로
@@ -28,6 +29,8 @@ services:
     # 방화벽과 상관없이 서로 대화할 수 있습니다.
     expose:
       - "3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
   # 3. GPT-SoVITS (AI 엔진)

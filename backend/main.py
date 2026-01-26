@@ -156,7 +156,7 @@ async def list_available_voices(
 # 3. TTS 생성 및 비용 차감 (Login Required)
 @app.post("/tts/generate")
 async def generate_tts(
-    request: schemas.GenerateRequest,
+    request: schemas.TTSRequest,
     current_user: models.User = Depends(get_current_user), # ⭐ 사용자
     db: Session = Depends(get_db)
 ):

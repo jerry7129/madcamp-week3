@@ -1,5 +1,4 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
 
@@ -14,32 +13,32 @@ class User(Base):
     role = Column(String(20), default="USER")
     credit_balance = Column(Integer, default=0)
 
-# 2. 보이스 모델 (VoiceModel) - 중복 제거됨
+# 2. 보이스 모델
 class VoiceModel(Base):
     __tablename__ = "voice_models"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id")) # 소유자
+    user_id = Column(Integer, ForeignKey("users.id")) # owner_id -> user_id로 통일
     
     model_name = Column(String(100), nullable=False)
-    gpt_path = Column(String(255), nullable=False)    # GPT 모델 경로
-    sovits_path = Column(String(255), nullable=False) # SoVITS 모델 경로
+    gpt_path = Column(String(255), nullable=False)
+    sovits_path = Column(String(255), nullable=False)
     
-    is_public = Column(Boolean, default=False)        # 공개 여부
-    usage_count = Column(Integer, default=0)          # 사용 횟수
+    is_public = Column(Boolean, default=False)
+    usage_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
 
-# 3. TTS 생성 기록 (정산 근거)
+# 3. TTS 생성 기록
 class TTSHistory(Base):
     __tablename__ = "tts_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))        # 구매자
-    voice_model_id = Column(Integer, ForeignKey("voice_models.id")) # 사용한 모델
+    user_id = Column(Integer, ForeignKey("users.id"))
+    voice_model_id = Column(Integer, ForeignKey("voice_models.id"))
     
-    text_content = Column(String(1000))  # 변환한 내용
-    audio_url = Column(String(255))      # 결과물 주소
-    cost_credit = Column(Integer)        # 지불한 금액
+    text_content = Column(String(1000))
+    audio_url = Column(String(255))
+    cost_credit = Column(Integer)
     created_at = Column(DateTime, default=datetime.now)
 
 # 4. 팀 (베팅용)

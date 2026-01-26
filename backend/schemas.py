@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 # --- 유저 관련 ---
 class UserCreate(BaseModel):
@@ -35,25 +36,33 @@ class MatchResultDecide(BaseModel):
     winner_team_id: int
 
 class VoteCreate(BaseModel):
-    username: str
     match_id: int
     team_id: int
     bet_amount: int
 
 class ChargeRequest(BaseModel):
-    username: str
     amount: int
 
 # --- 보이스 마켓 관련 ---
 class VoiceModelCreate(BaseModel):
-    username: str        
     model_name: str      
     gpt_path: str        
     sovits_path: str
     is_public: bool = False 
 
-# TTS 요청 (통합됨)
+# TTS 요청
 class TTSRequest(BaseModel):
-    username: str        # 사용자
-    voice_model_id: int  # 모델 ID
-    text: str            # 내용
+    voice_model_id: int
+    text: str
+
+# [NEW] 이게 없어서 에러가 났었습니다! (DB 모델 필드와 일치시킴)
+class VoiceModelResponse(BaseModel):
+    id: int
+    user_id: int
+    model_name: str
+    is_public: bool
+    usage_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

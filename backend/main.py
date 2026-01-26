@@ -192,30 +192,67 @@ def decide_match_result(
     db: Session = Depends(get_db),
     admin: models.User = Depends(get_admin_user)
 ):
+    # 1. 경기 확인
     match = db.query(models.Match).filter(models.Match.id == data.match_id).first()
     if not match or match.status == "FINISHED":
         raise HTTPException(status_code=400, detail="이미 끝난 경기이거나 없습니다.")
 
+    # 2. 결과 업데이트
     match.winner_team_id = data.winner_team_id
     match.status = "FINISHED"
     
-    # 배당 로직
+    # 3. 전체 판돈 계산
     total_bets = db.query(models.MatchVote).filter(models.MatchVote.match_id == match.id).all()
     total_pot = sum(vote.bet_amount for vote in total_bets)
     
+    # --- [NEW] 수수료 정산 로직 (Admin 징수) ---
+    FEE_PERCENT = 0.10  # 수수료 10% 설정 (필요하면 변경 가능)
+    
+    if total_pot > 0:
+        fee_amount = int(total_pot * FEE_PERCENT) # 관리자가 가져갈 돈
+        prize_pot = total_pot - fee_amount        # 우승자들이 나눠가질 돈
+        
+        # 'admin' 계정 찾기
+        system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+        
+        if system_admin and fee_amount > 0:
+            system_admin.credit_balance += fee_amount
+            
+            # 관리자 수입 로그 기록
+            log_fee = models.CreditLog(
+                user_id=system_admin.id,
+                amount=fee_amount,
+                transaction_type="FEE_IN",
+                description=f"경기 #{match.id} 운영 수수료",
+                reference_id=match.id
+            )
+            db.add(log_fee)
+        else:
+            # admin 계정이 없으면 수수료 없이 전액 배당 (혹은 에러 처리)
+            prize_pot = total_pot 
+    else:
+        prize_pot = 0
+
+    # 4. 우승자 배당금 분배
     winner_votes = [v for v in total_bets if v.team_id == data.winner_team_id]
     winner_pot = sum(v.bet_amount for v in winner_votes)
+    
+    actual_distributed_amount = 0  # [NEW] 실제로 사람들에게 나눠준 돈의 합계
 
     if winner_pot > 0:
         for vote in winner_votes:
-            share = (vote.bet_amount / winner_pot) * total_pot
-            prize = int(share)
+            # 내 지분율대로 계산하고 소수점 버림
+            share_ratio = vote.bet_amount / winner_pot
+            prize = int(share_ratio * prize_pot)
             
+            # 유저에게 입금
             user = db.query(models.User).filter(models.User.id == vote.user_id).first()
             user.credit_balance += prize
             vote.result_status = "WON"
             
-            # 로그 추가
+            # [NEW] 나눠준 돈 기록
+            actual_distributed_amount += prize 
+            
             log = models.CreditLog(
                 user_id=user.id,
                 amount=prize,
@@ -225,12 +262,38 @@ def decide_match_result(
             )
             db.add(log)
             
+    # --- [NEW] 자투리 돈(Dust) 처리 ---
+    # (배당해야 할 총액) - (실제로 나눠준 돈) = 남은 찌꺼기 돈
+    dust_amount = prize_pot - actual_distributed_amount
+    
+    if dust_amount > 0:
+        # admin 계정 다시 조회 (위에서 이미 조회했지만 명확성을 위해)
+        system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+        if system_admin:
+            system_admin.credit_balance += dust_amount
+            
+            # 자투리 수입 로그
+            log_dust = models.CreditLog(
+                user_id=system_admin.id,
+                amount=dust_amount,
+                transaction_type="FEE_DUST",
+                description=f"경기 #{match.id} 자투리 정산",
+                reference_id=match.id
+            )
+            db.add(log_dust)
+            
+    # 5. 패배자 처리
     for vote in total_bets:
         if vote.team_id != data.winner_team_id:
             vote.result_status = "LOST"
 
     db.commit()
-    return {"msg": "경기 종료 및 정산 완료", "winner": data.winner_team_id}
+    return {
+        "msg": "경기 종료 완료", 
+        "winner": data.winner_team_id, 
+        "total_pot": total_pot,
+        "fee_taken": int(total_pot * FEE_PERCENT) if total_pot > 0 else 0
+    }
 
 
 # =========================================================
@@ -291,56 +354,126 @@ async def list_available_voices(
     ).all()
     return models_list
 
-# TTS 생성 (비용 차감 포함)
+# TTS 생성 (비용 차감 + 수익 분배 로직 적용)
 @app.post("/tts/generate")
 async def generate_tts(
     request: schemas.TTSRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    COST = 50 # 생성 비용
+    COST = 50           # 1회 생성 비용
+    FEE_PERCENT = 0.10  # 플랫폼 수수료 10%
 
-    # 모델 확인
+    # 1. 모델 확인
     voice_model = db.query(models.VoiceModel).filter(models.VoiceModel.id == request.voice_model_id).first()
     if not voice_model:
         raise HTTPException(status_code=404, detail="모델이 없습니다.")
 
-    # 권한 확인
+    # 2. 권한 확인 (비공개 모델 남이 쓰려할 때)
     if not voice_model.is_public and voice_model.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="사용 권한이 없습니다.")
 
-    # 잔액 확인
+    # 3. 잔액 확인
     if current_user.credit_balance < COST:
         raise HTTPException(status_code=400, detail="잔액 부족")
 
-    # 결제 처리
-    current_user.credit_balance -= COST
-    voice_model.usage_count += 1
-    
-    # AI 요청 준비
-    temp_filename = f"temp_{uuid.uuid4()}.wav"
-    shared_path = os.path.join(SHARED_DIR, temp_filename)
-    
-    # (실제로는 gpt_path, sovits_path를 써야 하지만, 데모에선 원본 오디오를 사용)
-    shutil.copy(voice_model.gpt_path, shared_path)
-
-    payload = {
-        "text": request.text,
-        "text_lang": "ko",
-        "ref_audio_path": shared_path,
-        "prompt_text": "임시 텍스트", # DB에 저장 안 했으면 임시값
-        "prompt_lang": "ko",
-        "text_split_method": "cut5",
-        "speed_factor": 1.0
-    }
-
+    # --- [결제 및 정산 로직 시작] ---
     try:
+        # A. 사용자 돈 차감 (선결제)
+        current_user.credit_balance -= COST
+        voice_model.usage_count += 1
+        
+        # 사용 로그
+        log_use = models.CreditLog(
+            user_id=current_user.id,
+            amount=-COST,
+            transaction_type="TTS_USE",
+            description=f"TTS 생성 (모델: {voice_model.model_name})",
+            reference_id=voice_model.id
+        )
+        db.add(log_use)
+
+        # B. 수수료 및 수익 계산
+        platform_fee = int(COST * FEE_PERCENT) # 관리자가 가져갈 돈 (예: 5원)
+        net_revenue = COST - platform_fee      # 작가에게 줄 돈 (예: 45원)
+        
+        # C. 관리자(Admin) 입금
+        system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+        if system_admin and platform_fee > 0:
+            system_admin.credit_balance += platform_fee
+            
+            log_admin = models.CreditLog(
+                user_id=system_admin.id,
+                amount=platform_fee,
+                transaction_type="FEE_IN",
+                description=f"TTS 수수료 (User {current_user.username} -> Model {voice_model.id})",
+                reference_id=voice_model.id
+            )
+            db.add(log_admin)
+        else:
+            # 관리자가 없으면 수수료 0원 처리하고 전액 작가에게 (혹은 증발)
+            # 여기선 작가에게 전액 주는 걸로 처리
+            if not system_admin:
+                net_revenue = COST 
+
+        # D. 목소리 주인(Owner) 입금 (수익 창출!)
+        # 본인이 본인 거 쓸 때는 수익 0원으로 할 수도 있지만, 
+        # 여기선 "내 돈 내고 내가 수익 받음(수수료만 뗌)"으로 처리 (가장 깔끔함)
+        owner = db.query(models.User).filter(models.User.id == voice_model.user_id).first()
+        
+        actual_payout = 0 
+        if owner:
+            # (혹시 나중에 지분 쪼개기 등이 생길 수 있으니 int 처리 명시)
+            actual_payout = int(net_revenue) 
+            owner.credit_balance += actual_payout
+            
+            log_owner = models.CreditLog(
+                user_id=owner.id,
+                amount=actual_payout,
+                transaction_type="REVENUE",
+                description=f"모델 수익 (사용자: {current_user.username})",
+                reference_id=voice_model.id
+            )
+            db.add(log_owner)
+
+        # E. 자투리(Dust) 처리 (베팅 로직과 동일하게 Admin에게)
+        # (현재는 정수 뺄셈이라 거의 0원이지만, 로직 통일성을 위해 추가)
+        dust = COST - platform_fee - actual_payout
+        
+        if dust > 0 and system_admin:
+            system_admin.credit_balance += dust
+            db.add(models.CreditLog(
+                user_id=system_admin.id,
+                amount=dust,
+                transaction_type="FEE_DUST",
+                description="TTS 정산 자투리",
+                reference_id=voice_model.id
+            ))
+
+        # --- [AI 요청 로직] ---
+        # 돈 계산 다 끝났으니 이제 생성 시작
+        
+        temp_filename = f"temp_{uuid.uuid4()}.wav"
+        shared_path = os.path.join(SHARED_DIR, temp_filename)
+        
+        # 원본 파일 복사
+        shutil.copy(voice_model.gpt_path, shared_path)
+
+        payload = {
+            "text": request.text,
+            "text_lang": "ko",
+            "ref_audio_path": shared_path,
+            "prompt_text": "임시 텍스트", # DB에 저장된 ref_text가 있다면 그걸 쓰세요
+            "prompt_lang": "ko",
+            "text_split_method": "cut5",
+            "speed_factor": 1.0
+        }
+
         ai_url = "http://gpt-sovits:9880"
         response = requests.post(f"{ai_url}/tts", json=payload)
         
         if response.status_code != 200:
-            current_user.credit_balance += COST # 환불
-            raise HTTPException(status_code=500, detail="AI 서버 에러")
+            raise Exception("AI 서버 응답 오류")
 
         # 결과 저장
         user_gen_dir = os.path.join(GEN_DIR, str(current_user.id))
@@ -354,7 +487,7 @@ async def generate_tts(
 
         if os.path.exists(shared_path): os.remove(shared_path)
         
-        # 로그 및 히스토리
+        # 히스토리 저장
         history = models.TTSHistory(
             user_id=current_user.id,
             voice_model_id=voice_model.id,
@@ -363,6 +496,8 @@ async def generate_tts(
             cost_credit=COST
         )
         db.add(history)
+        
+        # 모든 DB 변경사항(돈, 로그, 히스토리) 한방에 저장
         db.commit()
 
         return {
@@ -373,8 +508,9 @@ async def generate_tts(
         }
 
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        db.rollback() # 에러나면 돈 뺀거 다시 원상복구!
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="생성 중 오류가 발생했습니다.")
 
 # 충전 (테스트용)
 @app.post("/charge")

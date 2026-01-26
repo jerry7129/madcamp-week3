@@ -436,8 +436,16 @@ async def tts_clone(
     db: Session = Depends(get_db)
 ):
     # --- 1. 유저가 보낸 파일 저장 (공유 폴더) ---
-    filename = f"{uuid.uuid4()}.wav"
-    file_path = os.path.join(SHARED_DIR, filename) # SHARED_DIR은 위에서 정의되어 있어야 함
+    # 사용자가 올린 파일의 확장자(.m4a, .mp3 등)를 추출
+    file_ext = os.path.splitext(audio_file.filename)[1]
+    
+    # 만약 확장자가 없으면 안전하게 .wav로 처리
+    if not file_ext:
+        file_ext = ".wav"
+        
+    # 원래 확장자를 붙여서 저장
+    filename = f"{uuid.uuid4()}{file_ext}"
+    file_path = os.path.join(SHARED_DIR, filename)
     
     # [수정] 여기서는 유저 파일만 저장해야 합니다.
     with open(file_path, "wb") as buffer:

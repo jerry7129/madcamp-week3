@@ -454,7 +454,7 @@ async def tts_clone(
         ai_url = "http://gpt-sovits:9880" 
         
         # AI에게 합성 요청
-        response = requests.post(f"{ai_url}/", json=payload)
+        response = requests.post(f"{ai_url}/tts", json=payload)
         
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail="AI 변환 실패")

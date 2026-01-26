@@ -13,7 +13,7 @@ services:
     volumes:
       - ./temp_shared:/shared
     environment:
-      - GPT_SOVITS_URL=http://gpt-sovits:9800
+      - GPT_SOVITS_URL=http://gpt-sovits:9880
       - SHARED_DIR=/shared # 백엔드가 파일 저장할 경로
 
   # 2. MySQL 데이터베이스

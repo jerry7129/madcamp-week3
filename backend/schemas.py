@@ -1,7 +1,7 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 
-# --- [User & Auth] ---
+# --- 유저 관련 ---
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -20,7 +20,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-# --- [Betting (기존 유지)] ---
+# --- 베팅 관련 ---
 class TeamCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -35,29 +35,25 @@ class MatchResultDecide(BaseModel):
     winner_team_id: int
 
 class VoteCreate(BaseModel):
-    # username 제거함 (로그인 유저 자동 인식)
+    username: str
     match_id: int
     team_id: int
     bet_amount: int
 
 class ChargeRequest(BaseModel):
-    amount: int # username 제거
+    username: str
+    amount: int
 
-# --- [Voice Market (NEW)] ---
+# --- 보이스 마켓 관련 ---
+class VoiceModelCreate(BaseModel):
+    username: str        
+    model_name: str      
+    gpt_path: str        
+    sovits_path: str
+    is_public: bool = False 
 
-# 1. TTS 생성 요청 (통합됨)
-class GenerateRequest(BaseModel):
-    voice_model_id: int  # 사용할 모델 ID
-    text: str            # 읽을 텍스트
-
-# 2. 목소리 모델 응답용 (리스트 보여줄 때)
-class VoiceModelResponse(BaseModel):
-    id: int
-    name: str
-    owner_id: int
-    description: Optional[str]
-    is_public: bool
-    usage_count: int
-    
-    class Config:
-        from_attributes = True
+# TTS 요청 (통합됨)
+class TTSRequest(BaseModel):
+    username: str        # 사용자
+    voice_model_id: int  # 모델 ID
+    text: str            # 내용

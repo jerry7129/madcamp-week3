@@ -83,6 +83,9 @@ class VoiceModelCreate(BaseModel):
     price: int = 1000  # [NEW]
     is_public: bool = False 
 
+class VoiceModelUpdate(BaseModel):
+    is_public: bool
+
 # TTS 요청
 class TTSRequest(BaseModel):
     voice_model_id: int

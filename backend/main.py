@@ -863,6 +863,33 @@ async def buy_voice_model(
         db.rollback()
         raise HTTPException(500, f"결제 실패: {str(e)}")
 
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"결제 실패: {str(e)}")
+
+# [NEW] 목소리 공개 여부 수정
+@app.put("/voice/update/{model_id}")
+async def update_voice_model_visibility(
+    model_id: int,
+    update_data: schemas.VoiceModelUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 모델 조회
+    model = db.query(models.VoiceModel).filter(models.VoiceModel.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="모델을 찾을 수 없습니다.")
+
+    # 2. 권한 확인 (본인 모델만 수정 가능)
+    if model.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
+
+    # 3. 업데이트
+    model.is_public = update_data.is_public
+    db.commit()
+    
+    return {"msg": "모델 공개 설정이 변경되었습니다.", "is_public": model.is_public}
+
 # [NEW] 목소리 저장 취소
 @app.delete("/voice/save/{model_id}")
 async def unsave_voice_model(

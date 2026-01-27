@@ -59,6 +59,23 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None: raise credentials_exception
+    if user is None: raise credentials_exception
+    return user
+
+# [NEW] 선택적 인증 (로그인 안 해도 접근 가능, 하면 유저 정보 반환)
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+def get_current_user_optional(token: str = Depends(oauth2_scheme_optional), db: Session = Depends(get_db)):
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None: return None
+    except JWTError:
+        return None
+    
+    user = db.query(models.User).filter(models.User.username == username).first()
     return user
 
 # 관리자 체크용 의존성
@@ -506,6 +523,15 @@ def vote_match(
     if not match or match.status != "OPEN":
         raise HTTPException(status_code=400, detail="투표 가능한 경기가 아닙니다.")
 
+    # [NEW] 중복 투표 방지
+    existing_vote = db.query(models.MatchVote).filter(
+        models.MatchVote.user_id == current_user.id,
+        models.MatchVote.match_id == vote.match_id
+    ).first()
+
+    if existing_vote:
+        raise HTTPException(status_code=400, detail="이미 투표한 경기입니다.")
+
     # 3. 팀 확인
     if vote.team_id not in [match.team_a_id, match.team_b_id]:
         raise HTTPException(status_code=400, detail="해당 경기에 참여하는 팀이 아닙니다.")
@@ -656,6 +682,7 @@ def decide_match_result(
 @app.get("/matches", response_model=list[schemas.MatchResponse])
 def list_matches(
     status: Optional[str] = None,
+    current_user: Optional[models.User] = Depends(get_current_user_optional), # [MOD] 선택적 유저
     db: Session = Depends(get_db)
 ):
     query = db.query(models.Match)
@@ -664,7 +691,33 @@ def list_matches(
     
     # 최신순 정렬
     matches = query.order_by(models.Match.created_at.desc()).all()
-    return matches
+    
+    # 유저가 로그인한 경우, 투표 여부 확인
+    my_votes_map = {} # match_id -> team_id
+    if current_user:
+        my_votes = db.query(models.MatchVote).filter(
+            models.MatchVote.user_id == current_user.id
+        ).all()
+        for v in my_votes:
+            my_votes_map[v.match_id] = v.team_id
+            
+    # 응답(Schema) 형태로 변환 후 is_voted 주입
+    results = []
+    for m in matches:
+        # Pydantic 모델로 변환 (ORM 모드)
+        resp = schemas.MatchResponse.from_orm(m)
+        
+        # 내가 투표했는지 체크
+        if m.id in my_votes_map:
+            resp.is_voted = True
+            resp.my_vote_team_id = my_votes_map[m.id]
+        else:
+            resp.is_voted = False
+            resp.my_vote_team_id = None
+            
+        results.append(resp)
+        
+    return results
 
 
 # =========================================================

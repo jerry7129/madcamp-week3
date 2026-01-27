@@ -53,6 +53,11 @@ class MatchResponse(BaseModel):
     status: str
     winner_team_id: Optional[int] = None
     created_at: datetime
+    
+    # [NEW] 유저 맞춤형 필드 (로그인 시)
+    is_voted: bool = False
+    my_vote_team_id: Optional[int] = None
+    
     class Config:
         from_attributes = True
 

@@ -67,6 +67,10 @@ class Match(Base):
     winner_team_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
+    from sqlalchemy.orm import relationship
+    team_a = relationship("Team", foreign_keys=[team_a_id])
+    team_b = relationship("Team", foreign_keys=[team_b_id])
+
 # 6. 투표 내역 (베팅용)
 class MatchVote(Base):
     __tablename__ = "match_votes"

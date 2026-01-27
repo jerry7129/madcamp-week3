@@ -37,6 +37,25 @@ class MatchResultDecide(BaseModel):
     match_id: int
     winner_team_id: int
 
+# [NEW] 경기/팀 응답 스키마
+class TeamResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    class Config:
+        from_attributes = True
+
+class MatchResponse(BaseModel):
+    id: int
+    title: str
+    team_a: TeamResponse
+    team_b: TeamResponse
+    status: str
+    winner_team_id: Optional[int] = None
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
 class VoteCreate(BaseModel):
     match_id: int
     team_id: int

@@ -651,6 +651,21 @@ def decide_match_result(
     }
 
 
+# [NEW] 경기 목록 조회 (전체)
+@app.get("/matches", response_model=list[schemas.MatchResponse])
+def list_matches(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(models.Match)
+    if status:
+        query = query.filter(models.Match.status == status)
+    
+    # 최신순 정렬
+    matches = query.order_by(models.Match.created_at.desc()).all()
+    return matches
+
+
 # =========================================================
 # 3. [Voice Market] 목소리 등록, 조회, 생성 (AI)
 # =========================================================

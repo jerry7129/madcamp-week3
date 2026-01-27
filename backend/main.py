@@ -306,6 +306,131 @@ def play_oddeven_game(
         "current_balance": current_user.credit_balance
     }
 
+# [NEW] 사다리 게임 API
+@app.post("/game/ladder", response_model=schemas.LadderGameResponse)
+def play_ladder_game(
+    game_req: schemas.LadderGameRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 유효성 검사
+    if game_req.bet_amount < 100:
+        raise HTTPException(400, "배팅 금액은 최소 100 이상이어야 합니다.")
+        
+    if current_user.credit_balance < game_req.bet_amount:
+        raise HTTPException(400, "크레딧이 부족합니다.")
+    
+    # 적어도 하나는 선택해야 함
+    if not any([game_req.start_point, game_req.line_count, game_req.end_point]):
+        raise HTTPException(400, "적어도 하나의 항목을 선택해야 합니다.")
+
+    # 2. 게임 결과 생성 (백엔드 로직)
+    # 2-1. 가로줄 개수 (3 or 4)
+    line_count = random.choice([3, 4])
+    
+    # 2-2. 출발 지점 (0=LEFT, 1=RIGHT)
+    start_idx = random.choice([0, 1]) # 0 or 1
+    
+    # 2-3. 가로줄 위치 생성 (7줄 중 line_count개 선택)
+    # 사다리 높이: 7 (인덱스 0~6)
+    ladder_height = 7
+    # 0~6 사이에서 line_count개만큼 랜덤 위치 선정 (중복 없음)
+    horizontal_lines = sorted(random.sample(range(ladder_height), line_count))
+    
+    # 2-4. 도착 지점 계산
+    # start_idx에서 시작해서 내려가면서 가로줄을 만나면 이동 (0->1, 1->0)
+    current_pos = start_idx
+    
+    # 사다리를 위(0)에서 아래(6)로 내려가면서 체크
+    # horizontal_lines에는 가로줄이 있는 인덱스가 들어있음
+    # 예: [1, 3, 5] 라면 인덱스 1, 3, 5에서 교차 발생
+    for i in range(ladder_height):
+        if i in horizontal_lines:
+            # 가로줄을 만나면 위치 변경 (0 <-> 1)
+            current_pos = 1 - current_pos
+            
+    end_idx = current_pos
+    
+    # 결과 문자열 변환
+    start_str = "LEFT" if start_idx == 0 else "RIGHT"
+    end_str = "LEFT" if end_idx == 0 else "RIGHT"
+    
+    # 3. 승패 판정
+    # 사용자가 선택한 항목들이 실제 결과와 일치하는지 확인
+    # 선택하지 않은 항목(None)은 패스
+    
+    is_win = True
+    match_count = 0
+    
+    if game_req.start_point:
+        if game_req.start_point == start_str:
+            match_count += 1
+        else:
+            is_win = False
+            
+    if game_req.line_count:
+        if game_req.line_count == line_count:
+            match_count += 1
+        else:
+            is_win = False
+            
+    if game_req.end_point:
+        if game_req.end_point == end_str:
+            match_count += 1
+        else:
+            is_win = False
+            
+    # 배팅 로직: 하나라도 틀리면 LOSE (조건부 승리)
+    # 다 맞으면 승리 -> 배당: 1.8 ^ 맞춘 개수
+    
+    payout = 0
+    profit = 0
+    result_status = "LOSE"
+    
+    if is_win and match_count > 0:
+        result_status = "WIN"
+        # 배당 계산 (1.8의 match_count승)
+        multiplier = 1.8 ** match_count
+        # 소수점 버림? 올림? -> 보통 정수 절삭
+        payout = int(game_req.bet_amount * multiplier)
+        
+        # 순수익 = 지급액 - 배팅액
+        profit = payout - game_req.bet_amount
+    else:
+        # 패배 시: 배팅액만큼 차감
+        profit = -game_req.bet_amount
+        
+    # 4. 결과 반영
+    current_user.credit_balance += profit
+    
+    # 0 미만 방지 (빚쟁이 방지)
+    if current_user.credit_balance < 0:
+        current_user.credit_balance = 0
+
+    # 로그
+    db.add(models.CreditLog(
+        user_id=current_user.id,
+        amount=profit,
+        transaction_type=f"LADDER_{result_status}",
+        description=f"사다리: {start_str}/{line_count}/{end_str} (Bet:{game_req.bet_amount})",
+        reference_id=None
+    ))
+    db.commit()
+    
+    return {
+        "result": result_status,
+        "start_point": start_str,
+        "line_count": line_count,
+        "end_point": end_str,
+        "payout": payout,
+        "current_balance": current_user.credit_balance,
+        "ladder_data": {
+            "start_idx": start_idx,
+            "horizontal_lines": horizontal_lines,
+            "end_idx": end_idx
+        }
+    }
+
 # =========================================================
 # 2. [Betting System] 팀, 경기, 투표 기능 (복구됨!)
 # =========================================================

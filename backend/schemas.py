@@ -50,10 +50,31 @@ class RPSGameRequest(BaseModel):
     bet_amount: int
     choice: str  # "ROCK", "PAPER", "SCISSORS"
 
-# [NEW] 홀짝 게임 요청
+# 홀짝 게임 요청
 class OddEvenGameRequest(BaseModel):
     bet_amount: int
     choice: str # "ODD", "EVEN"
+
+# [NEW] 사다리 게임 요청
+class LadderGameRequest(BaseModel):
+    bet_amount: int
+    # 사용자가 선택한 베팅 항목 (None이면 선택 안 함)
+    # "LEFT", "RIGHT"
+    start_point: Optional[str] = None 
+    # 3 or 4
+    line_count: Optional[int] = None
+    # "LEFT", "RIGHT"
+    end_point: Optional[str] = None
+
+# 사다리 게임 결과 (디버깅/프론트 표시용)
+class LadderGameResponse(BaseModel):
+    result: str # WIN / LOSE
+    start_point: str
+    line_count: int
+    end_point: str
+    payout: int
+    current_balance: int
+    ladder_data: dict # 사다리 구조 데이터 (선택)
 
 # --- 보이스 마켓 관련 ---
 class VoiceModelCreate(BaseModel):

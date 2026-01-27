@@ -300,7 +300,7 @@ def decide_match_result(
 # 3. [Voice Market] 목소리 등록, 조회, 생성 (AI)
 # =========================================================
 
-# 목소리 등록 (누구나 가능)
+# 목소리 등록 (Fine-tuning 요청)
 @app.post("/voice/train")
 async def create_voice_model(
     name: str = Form(...),
@@ -311,6 +311,7 @@ async def create_voice_model(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # 1. 파일 저장
     user_voice_dir = os.path.join(VOICE_DIR, str(current_user.id))
     os.makedirs(user_voice_dir, exist_ok=True)
 
@@ -320,25 +321,59 @@ async def create_voice_model(
 
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(audio_file.file, buffer)
+        
+    try:
+        # 2. AI 서버에 학습 요청 (Wrapper)
+        ai_url = "http://gpt-sovits:9880"
+        
+        shared_filename = f"train_{uuid.uuid4()}{file_ext}"
+        shared_path = os.path.join(SHARED_DIR, shared_filename)
+        shutil.copy(save_path, shared_path)
 
-    new_model = models.VoiceModel(
-        user_id=current_user.id,
-        model_name=name,
-        # GPT/SoVITS 경로는 실제 학습이 없으므로, 일단 원본 오디오 경로를 넣어둡니다 (데모용)
-        gpt_path=save_path, 
-        sovits_path=save_path,
-        is_public=is_public,
-        usage_count=0
-    )
-    # models.py에 ref_text 필드가 없다면 추가하거나 생략해야 함 (여기선 생략된 모델 가정)
-    # 만약 models.py에 ref_text 필드가 있다면 아래 주석 해제:
-    # new_model.ref_text = ref_text 
+        payload = {
+            "user_id": str(current_user.id),
+            "ref_audio_path": shared_path,
+            "ref_text": ref_text
+        }
+        
+        # /fine_tune 대신 /train_model 호출
+        response = requests.post(f"{ai_url}/train_model", json=payload, timeout=600)
+        
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"AI 학습 실패: {response.text}")
+            
+        result = response.json()
+        model_path = result.get("model_path")
+        
+        if not model_path:
+            raise HTTPException(status_code=500, detail="AI 서버가 모델 경로를 반환하지 않았습니다.")
 
-    db.add(new_model)
-    db.commit()
-    db.refresh(new_model)
+        # 3. DB 저장
+        new_model = models.VoiceModel(
+            user_id=current_user.id,
+            model_name=name,
+            # ref_audio_path, ref_text 삭제됨
+            model_path=model_path,    # 학습된 체크포인트
+            is_public=is_public,
+            usage_count=0
+        )
 
-    return {"msg": "목소리 등록 완료", "model_id": new_model.id}
+        db.add(new_model)
+        db.commit()
+        db.refresh(new_model)
+        
+        # 임시 공유 파일 삭제
+        if os.path.exists(shared_path): os.remove(shared_path)
+
+        return {"msg": "목소리 모델 학습 완료", "model_id": new_model.id}
+
+    except requests.exceptions.Timeout:
+         raise HTTPException(status_code=504, detail="AI 서버 응답 시간 초과 (학습이 너무 오래 걸립니다)")
+    except Exception as e:
+        print(f"Error during training: {e}")
+        # 실패 시 업로드한 파일 삭제 (선택)
+        if os.path.exists(save_path): os.remove(save_path)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # 목소리 마켓 목록
 @app.get("/voice/list", response_model=list[schemas.VoiceModelResponse])
@@ -372,6 +407,10 @@ async def generate_tts(
     # 2. 권한 확인 (비공개 모델 남이 쓰려할 때)
     if not voice_model.is_public and voice_model.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="사용 권한이 없습니다.")
+    
+    # [NEW] 학습된 모델인지 확인
+    if not voice_model.model_path:
+         raise HTTPException(status_code=400, detail="학습이 완료되지 않은 모델입니다.")
 
     # 3. 잔액 확인
     if current_user.credit_balance < COST:
@@ -411,19 +450,14 @@ async def generate_tts(
             )
             db.add(log_admin)
         else:
-            # 관리자가 없으면 수수료 0원 처리하고 전액 작가에게 (혹은 증발)
-            # 여기선 작가에게 전액 주는 걸로 처리
             if not system_admin:
                 net_revenue = COST 
 
         # D. 목소리 주인(Owner) 입금 (수익 창출!)
-        # 본인이 본인 거 쓸 때는 수익 0원으로 할 수도 있지만, 
-        # 여기선 "내 돈 내고 내가 수익 받음(수수료만 뗌)"으로 처리 (가장 깔끔함)
         owner = db.query(models.User).filter(models.User.id == voice_model.user_id).first()
         
         actual_payout = 0 
         if owner:
-            # (혹시 나중에 지분 쪼개기 등이 생길 수 있으니 int 처리 명시)
             actual_payout = int(net_revenue) 
             owner.credit_balance += actual_payout
             
@@ -436,8 +470,7 @@ async def generate_tts(
             )
             db.add(log_owner)
 
-        # E. 자투리(Dust) 처리 (베팅 로직과 동일하게 Admin에게)
-        # (현재는 정수 뺄셈이라 거의 0원이지만, 로직 통일성을 위해 추가)
+        # E. 자투리(Dust) 처리
         dust = COST - platform_fee - actual_payout
         
         if dust > 0 and system_admin:
@@ -451,19 +484,13 @@ async def generate_tts(
             ))
 
         # --- [AI 요청 로직] ---
-        # 돈 계산 다 끝났으니 이제 생성 시작
         
-        temp_filename = f"temp_{uuid.uuid4()}.wav"
-        shared_path = os.path.join(SHARED_DIR, temp_filename)
-        
-        # 원본 파일 복사
-        shutil.copy(voice_model.gpt_path, shared_path)
-
+        # [NEW] Fine-tuning된 모델 사용 요청
         payload = {
             "text": request.text,
             "text_lang": "ko",
-            "ref_audio_path": shared_path,
-            "prompt_text": "임시 텍스트", # DB에 저장된 ref_text가 있다면 그걸 쓰세요
+            "model_path": voice_model.model_path, # 학습된 체크포인트 전달
+            "prompt_text": "", 
             "prompt_lang": "ko",
             "text_split_method": "cut5",
             "speed_factor": 1.0
@@ -485,8 +512,6 @@ async def generate_tts(
         with open(output_path, "wb") as f:
             f.write(response.content)
 
-        if os.path.exists(shared_path): os.remove(shared_path)
-        
         # 히스토리 저장
         history = models.TTSHistory(
             user_id=current_user.id,
@@ -497,7 +522,7 @@ async def generate_tts(
         )
         db.add(history)
         
-        # 모든 DB 변경사항(돈, 로그, 히스토리) 한방에 저장
+        # 모든 DB 변경사항 한방에 저장
         db.commit()
 
         return {
@@ -508,7 +533,7 @@ async def generate_tts(
         }
 
     except Exception as e:
-        db.rollback() # 에러나면 돈 뺀거 다시 원상복구!
+        db.rollback() 
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail="생성 중 오류가 발생했습니다.")
 

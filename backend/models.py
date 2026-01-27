@@ -20,9 +20,7 @@ class VoiceModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id")) # owner_id -> user_id로 통일
     
-    model_name = Column(String(100), nullable=False)
-    gpt_path = Column(String(255), nullable=False)
-    sovits_path = Column(String(255), nullable=False)
+    model_path = Column(String(255), nullable=True)   # 학습된 모델 체크포인트 경로
     
     is_public = Column(Boolean, default=False)
     usage_count = Column(Integer, default=0)

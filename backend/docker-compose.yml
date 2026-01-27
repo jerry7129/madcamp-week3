@@ -43,7 +43,9 @@ services:
     volumes:
       # [핵심] Conda에서 쓰던 폴더를 도커 내부 /workspace로 연결
       - ../GPT-SoVITS:/workspace
+      - ../checkpoint:/workspace/logs # [NEW] 체크포인트 저장소
       - ./temp_shared:/shared
+      - ./ai_server.py:/workspace/ai_server.py # [NEW] 래퍼 스크립트 마운트
     deploy:
       resources:
         reservations:
@@ -51,5 +53,5 @@ services:
             - driver: nvidia  # GPU 사용 설정 (필수)
               count: 1
               capabilities: [gpu]
-    # 도커가 켜질 때 실행할 명령어 (API 서버 실행)
-    command: python api_v2.py -a 0.0.0.0 -p 9880
+    # 도커가 켜질 때 실행할 명령어 (API 래퍼 실행)
+    command: python ai_server.py

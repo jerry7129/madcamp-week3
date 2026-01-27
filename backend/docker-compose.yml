@@ -57,5 +57,6 @@ services:
             - driver: nvidia  # GPU 사용 설정 (필수)
               count: 1
               capabilities: [gpu]
-    # 도커가 켜질 때 실행할 명령어 (API 래퍼 실행)
-    command: python ai_server.py
+    # 도커가 켜질 때 실행할 명령어 (패키지 설치 후 API 실행)
+    command: >
+      sh -c "pip install faster_whisper && python ai_server.py"

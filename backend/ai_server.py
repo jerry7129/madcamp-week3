@@ -25,6 +25,7 @@ BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s2.pth"
 
 class TrainRequest(BaseModel):
     user_id: str
+    model_name: str
     ref_audio_path: str
     ref_text: str
 
@@ -35,7 +36,9 @@ async def train_model_wrapper(req: TrainRequest):
     """
     try:
         # 1. Setup paths
-        dataset_root = f"/workspace/logs/{req.user_id}"
+        # Use user_id and model_name for unique directory
+        safe_model_name = "".join([c for c in req.model_name if c.isalnum() or c in (' ', '_', '-')]).rstrip()
+        dataset_root = f"/workspace/logs/{req.user_id}_{safe_model_name}"
         os.makedirs(dataset_root, exist_ok=True)
         
         # Audio file path (from shared volume)

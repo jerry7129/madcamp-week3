@@ -12,6 +12,7 @@ class User(Base):
     nickname = Column(String(50))
     role = Column(String(20), default="USER")
     credit_balance = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
 
 # 2. 보이스 모델
 class VoiceModel(Base):
@@ -20,6 +21,7 @@ class VoiceModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id")) # owner_id -> user_id로 통일
     
+    model_name = Column(String(100), nullable=False)  # 모델 이름
     model_path = Column(String(255), nullable=True)   # 학습된 모델 체크포인트 경로
     
     is_public = Column(Boolean, default=False)
@@ -55,6 +57,7 @@ class Match(Base):
     team_b_id = Column(Integer, ForeignKey("teams.id"))
     status = Column(String(20), default="OPEN") 
     winner_team_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
 
 # 6. 투표 내역 (베팅용)
 class MatchVote(Base):
@@ -65,6 +68,7 @@ class MatchVote(Base):
     team_id = Column(Integer)
     bet_amount = Column(Integer)
     result_status = Column(String(20), default="PENDING") 
+    created_at = Column(DateTime, default=datetime.now) 
 
 # 7. 크레딧 로그 (장부)
 class CreditLog(Base):

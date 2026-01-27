@@ -332,6 +332,7 @@ async def create_voice_model(
 
         payload = {
             "user_id": str(current_user.id),
+            "model_name": name,
             "ref_audio_path": shared_path,
             "ref_text": ref_text
         }

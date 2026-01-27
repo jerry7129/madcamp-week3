@@ -48,6 +48,7 @@ services:
       - ./temp_shared:/shared
       - ./ai_server.py:/workspace/ai_server.py # [NEW] 래퍼 스크립트 마운트
       - ../voice_dataset:/workspace/voice_dataset # [NEW] 데이터셋 마운트
+      - ../hf_cache:/root/.cache/huggingface # [NEW] 모델 다운로드 캐시 저장
     deploy:
       resources:
         reservations:

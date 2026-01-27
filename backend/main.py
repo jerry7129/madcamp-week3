@@ -70,19 +70,52 @@ def get_admin_user(current_user: models.User = Depends(get_current_user)):
 # 1. 회원가입 / 로그인 / 정보 조회
 # =========================================================
 @app.post("/signup", response_model=schemas.UserResponse)
-def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if db.query(models.User).filter(models.User.username == user.username).first():
+async def signup(
+    username: str = Form(...),
+    password: str = Form(...),
+    nickname: str = Form(None),
+    profile_image: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    if db.query(models.User).filter(models.User.username == username).first():
         raise HTTPException(status_code=400, detail="이미 존재하는 아이디")
+    
+    # 1. 유저 먼저 생성 (ID 확보를 위해)
     new_user = models.User(
-        username=user.username,
-        password=pwd_context.hash(user.password),
-        nickname=user.nickname,
+        username=username,
+        password=pwd_context.hash(password),
+        nickname=nickname,
         role="USER",
-        credit_balance=1000 # 가입 축하금
+        credit_balance=1000, # 가입 축하금
+        profile_image="/static/default_profile.png" # 일단 기본값
     )
     db.add(new_user)
     db.commit()
-    db.refresh(new_user)
+    db.refresh(new_user) 
+    
+    # 2. 프로필 이미지 저장 (있다면)
+    if profile_image:
+        try:
+            # 유저별 폴더 생성: static/profiles/{user_id}/
+            user_profile_dir = os.path.join(STATIC_DIR, "profiles", str(new_user.id))
+            os.makedirs(user_profile_dir, exist_ok=True)
+            
+            file_ext = os.path.splitext(profile_image.filename)[1] or ".png"
+            filename = f"profile{file_ext}" # 이름 단순화 (어차피 폴더가 분리됨)
+            save_path = os.path.join(user_profile_dir, filename)
+            
+            with open(save_path, "wb") as buffer:
+                shutil.copyfileobj(profile_image.file, buffer)
+                
+            # DB 업데이트
+            new_user.profile_image = f"/static/profiles/{new_user.id}/{filename}"
+            db.commit()
+            db.refresh(new_user)
+            
+        except Exception as e:
+            print(f"프로필 이미지 저장 실패: {e}")
+            # 실패해도 유저 가입은 성공시킴 (이미지는 기본값)
+            
     return new_user
 
 @app.post("/login", response_model=schemas.Token)

@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     nickname: str
     role: str
     credit_balance: int
+    profile_image: Optional[str] = None # [NEW]
     created_at: datetime
     class Config:
         from_attributes = True

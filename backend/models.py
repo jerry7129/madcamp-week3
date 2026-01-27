@@ -12,6 +12,7 @@ class User(Base):
     nickname = Column(String(50))
     role = Column(String(20), default="USER")
     credit_balance = Column(Integer, default=0)
+    profile_image = Column(String(255), default="/static/default_profile.png") # [NEW]
     created_at = Column(DateTime, default=datetime.now)
 
 # 2. 보이스 모델

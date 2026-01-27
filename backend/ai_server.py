@@ -21,12 +21,10 @@ app = FastAPI()
 # --- Fine-tuning wrapper logic ---
 
 # # Base Model Paths (To be created by user via WebUI)
-# # These should be in /workspace/GPT_SoVITS/pretrained_models/custom_base/
-# BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s1.ckpt"
-# BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s2.pth"
-# Base Model Paths (Found in gsv-v2final-pretrained)
-BASE_S1_PATH = "/workspace/GPT_weights_v2Pro/xxx-e15.ckpt"
-BASE_S2_PATH = "/workspace/SoVITS_weights_v2Pro/xxx_e8_s96.pth"
+BASE_S1_PATH = "/workspace/GPT_weights_v2Pro/ttsmaker2-e15.ckpt"
+BASE_S2_PATH = "/workspace/SoVITS_weights_v2Pro/ttsmaker2_e8_s208.pth"
+# BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/s1v3.ckpt"
+# BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/v2Pro/s2Gv2Pro.pth"
 
 class TrainRequest(BaseModel):
     user_id: str

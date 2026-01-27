@@ -40,6 +40,7 @@ services:
     ports:
       - "9880:9880"       # 내부 API 통신용
       - "9874:9874"       # (선택) 필요시 WebUI용 포트도 열어둠
+      - "9871:9871"       # [NEW] WebUI 하위 도구(Audio Slicer 등)용 포트
     volumes:
       # [핵심] Conda에서 쓰던 폴더를 도커 내부 /workspace로 연결
       - ../GPT-SoVITS:/workspace

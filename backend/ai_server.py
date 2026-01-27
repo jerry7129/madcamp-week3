@@ -118,13 +118,18 @@ async def tts_wrapper(req: TTSRequestWithModel):
 
         # Read prompt text from 2-name2text.txt if exists
         name2text_path = os.path.join(model_root, "2-name2text.txt")
-        if os.path.exists(name2text_path):
+        if not os.path.exists(name2text_path):
+            print(f"[ERROR] 2-name2text.txt not found at {name2text_path}")
+        else:
             with open(name2text_path, "r", encoding="utf-8") as f:
                 # format: filename|text|speaker|lang
                 line = f.readline().strip()
+                print(f"[DEBUG] Read line from 2-name2text.txt: {line}")
                 parts = line.split("|")
                 if len(parts) >= 2:
                     prompt_text = parts[1]
+        
+        print(f"[DEBUG] Using ref_audio: {ref_audio_path}, prompt_text: {prompt_text}")
 
         # 3. Construct Request for api_v2
         api_req = {
@@ -140,9 +145,11 @@ async def tts_wrapper(req: TTSRequestWithModel):
             "media_type": "wav"
         }
         
+        print(f"[DEBUG] Calling tts_handle with req: {api_req}")
         return await tts_handle(api_req)
 
     except Exception as e:
+        print("!!! EXCEPTION IN TTS WRAPPER !!!")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 

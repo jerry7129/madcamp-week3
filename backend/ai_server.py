@@ -32,6 +32,15 @@ class TrainRequest(BaseModel):
     ref_audio_path: str
     ref_text: str
 
+class TTSRequestWithModel(BaseModel):
+    text: str
+    text_lang: str
+    model_path: str
+    # Add other fields as needed or use kwargs
+    prompt_lang: str = "ko"
+    text_split_method: str = "cut5"
+    speed_factor: float = 1.0
+
 @app.post("/train_model")
 async def train_model_wrapper(req: TrainRequest):
     """
@@ -58,25 +67,81 @@ async def train_model_wrapper(req: TrainRequest):
             f.write(f"{target_wav_name}|{req.ref_text}|{req.user_id}|ko\n")
 
         # 3. Training Execution (Mocked for now)
-        # In a real scenario, we would generate config files here using BASE_S1_PATH and BASE_S2_PATH
-        # as 'pretrained_s1' and 'pretrained_s2G/D'.
+        # In a real scenario, correct commands would be here.
+        # For connection testing, we SIMULATE training by copying base models to the output dir.
         
-        # Example command construction:
-        # cmd_s2 = f"python GPT_SoVITS/s2_train.py --config ... --pretrained_s2G {BASE_S2_PATH} ..."
-        # subprocess.run(cmd_s2, shell=True)
+        dummy_s1 = os.path.join(dataset_root, f"mock_s1_{safe_model_name}.ckpt")
+        dummy_s2 = os.path.join(dataset_root, f"mock_s2_{safe_model_name}.pth")
         
-        # Check if base models exist (Warning only for now)
-        if not os.path.exists(BASE_S1_PATH) or not os.path.exists(BASE_S2_PATH):
-            print(f"[WARNING] Base models not found at {BASE_S1_PATH} or {BASE_S2_PATH}. "
-                  "Please ensure you have trained the base model using WebUI and placed it there.")
+        if os.path.exists(BASE_S1_PATH):
+            shutil.copy(BASE_S1_PATH, dummy_s1)
+        if os.path.exists(BASE_S2_PATH):
+            shutil.copy(BASE_S2_PATH, dummy_s2)
 
-        # [CRITICAL] Returning the dataset root as the 'model_path'
-        # The inference logic needs to find the *finetuned* weights here.
-        # Since we are mocking, we can copy the base model here to simulate a result?
-        # Or just return the path.
-        
         return {"model_path": dataset_root}
         
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/tts")
+async def tts_wrapper(req: TTSRequestWithModel):
+    """
+    Custom TTS endpoint that loads weights from model_path before inference.
+    """
+    try:
+        model_root = req.model_path
+        print(f"Requesting TTS with model: {model_root}")
+
+        if not os.path.exists(model_root):
+            raise HTTPException(status_code=404, detail="Model path not found")
+
+        # 1. Load Weights from model_path
+        # Look for .ckpt and .pth files
+        gpt_models = glob.glob(os.path.join(model_root, "*.ckpt"))
+        sovits_models = glob.glob(os.path.join(model_root, "*.pth"))
+
+        if gpt_models:
+            # Pick the newest one
+            gpt_model = max(gpt_models, key=os.path.getmtime)
+            print(f"Loading GPT weights: {gpt_model}")
+            tts_pipeline.init_t2s_weights(gpt_model)
+        
+        if sovits_models:
+            sovits_model = max(sovits_models, key=os.path.getmtime)
+            print(f"Loading SoVITS weights: {sovits_model}")
+            tts_pipeline.init_vits_weights(sovits_model)
+
+        # 2. Resolve Reference Audio & Text
+        ref_audio_path = os.path.join(model_root, "1_input.wav")
+        prompt_text = ""
+
+        # Read prompt text from 2-name2text.txt if exists
+        name2text_path = os.path.join(model_root, "2-name2text.txt")
+        if os.path.exists(name2text_path):
+            with open(name2text_path, "r", encoding="utf-8") as f:
+                # format: filename|text|speaker|lang
+                line = f.readline().strip()
+                parts = line.split("|")
+                if len(parts) >= 2:
+                    prompt_text = parts[1]
+
+        # 3. Construct Request for api_v2
+        api_req = {
+            "text": req.text,
+            "text_lang": req.text_lang,
+            "ref_audio_path": ref_audio_path,
+            "prompt_text": prompt_text,
+            "prompt_lang": req.prompt_lang,
+            "text_split_method": req.text_split_method,
+            "speed_factor": req.speed_factor,
+            # Add defaults for others
+            "streaming_mode": False,
+            "media_type": "wav"
+        }
+        
+        return await tts_handle(api_req)
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

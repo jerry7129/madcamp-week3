@@ -13,8 +13,9 @@ import uvicorn
 sys.path.append("/workspace")
 from api_v2 import APP as original_app, tts_handle
 
-# Create a new FastAPI app that wraps the original one or extends it
-app = original_app
+# Create a new FastAPI app to avoid route conflicts with api_v2.APP
+# We only want OUR /tts handler, not the original one.
+app = FastAPI()
 
 # --- Fine-tuning wrapper logic ---
 

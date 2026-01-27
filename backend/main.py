@@ -389,12 +389,19 @@ def decide_match_result(
 async def create_voice_model(
     name: str = Form(...),
     description: str = Form(None),
+    price: int = Form(1000), # [NEW] 가격 설정 (기본 1000)
     is_public: bool = Form(False),
     ref_text: str = Form(...),
     audio_file: UploadFile = File(...),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # ... (파일 저장 및 AI 요청 로직 생략, 위와 동일) ...
+    # 실제로는 diff가 너무 길어지므로 model 생성 부분만 대체합니다.
+    # 하지만 replace_file_content는 context가 필요하므로 전체 함수 헤더를 수정해야 함.
+    # 여기서는 "VoiceModel 객체 생성" 부분과 "함수 헤더"를 나눠서 수정하는게 나을듯 하지만
+    # 한 번에 하는게 안전함.
+
     # 1. 파일 저장
     user_voice_dir = os.path.join(VOICE_DIR, str(current_user.id))
     os.makedirs(user_voice_dir, exist_ok=True)
@@ -407,7 +414,7 @@ async def create_voice_model(
         shutil.copyfileobj(audio_file.file, buffer)
         
     try:
-        # 2. AI 서버에 학습 요청 (Wrapper)
+        # 2. AI 서버에 학습 요청
         ai_url = "http://gpt-sovits:9880"
         
         shared_filename = f"train_{uuid.uuid4()}{file_ext}"
@@ -421,7 +428,6 @@ async def create_voice_model(
             "ref_text": ref_text
         }
         
-        # /fine_tune 대신 /train_model 호출
         response = requests.post(f"{ai_url}/train_model", json=payload, timeout=600)
         
         if response.status_code != 200:
@@ -437,14 +443,21 @@ async def create_voice_model(
         new_model = models.VoiceModel(
             user_id=current_user.id,
             model_name=name,
-            description=description, # [NEW]
-            # ref_audio_path, ref_text 삭제됨
-            model_path=model_path,    # 학습된 체크포인트
+            description=description,
+            price=price, # [NEW]
+            model_path=model_path,
             is_public=is_public,
             usage_count=0
         )
 
         db.add(new_model)
+        db.commit()
+        db.refresh(new_model)
+        
+        # [NEW] 제작자도 자동으로 '구매(소장)' 처리
+        # 이렇게 하면 나중에 권한 체크할 때 'UserSavedVoice'만 보면 됨 (is_owner 체크 불필요)
+        owner_saved = models.UserSavedVoice(user_id=current_user.id, voice_model_id=new_model.id)
+        db.add(owner_saved)
         db.commit()
         db.refresh(new_model)
         
@@ -467,17 +480,36 @@ async def list_available_voices(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # 1. 공개된 모델만 조회 (내꺼라도 비공개면 안 보여줌)
     models_list = db.query(models.VoiceModel).filter(
-        or_(
-            models.VoiceModel.user_id == current_user.id,
-            models.VoiceModel.is_public == True
-        )
+        models.VoiceModel.is_public == True
     ).all()
-    return models_list
+    
+    # 2. 내가 구매한(저장한) 모델 ID 목록 조회
+    purchased_ids = db.query(models.UserSavedVoice.voice_model_id).filter(
+        models.UserSavedVoice.user_id == current_user.id
+    ).all()
+    
+    # 튜플 리스트 -> set으로 변환 (검색 속도 향상)
+    purchased_ids_set = {pid[0] for pid in purchased_ids}
+    
+    # 3. 응답 데이터 구성 (is_purchased 필드 채우기)
+    results = []
+    for model in models_list:
+        # 내 모델이면 무조건 구매한 것으로 간주 (혹은 DB에 자동 저장 했으면 그걸로 체크)
+        is_mine = (model.user_id == current_user.id)
+        is_bought = (model.id in purchased_ids_set)
+        
+        # Pydantic 모델로 변환
+        resp = schemas.VoiceModelResponse.from_orm(model)
+        resp.is_purchased = (is_mine or is_bought)
+        results.append(resp)
+        
+    return results
 
-# [NEW] 목소리 저장 (라이브러리 추가)
-@app.post("/voice/save/{model_id}")
-async def save_voice_model(
+# [NEW] 목소리 구매 (저장 -> 구매)
+@app.post("/voice/buy/{model_id}")
+async def buy_voice_model(
     model_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -486,22 +518,83 @@ async def save_voice_model(
     if not model:
         raise HTTPException(404, "모델을 찾을 수 없습니다.")
     
-    # 비공개 모델은 저장 불가 (내꺼 빼고)
-    if not model.is_public and model.user_id != current_user.id:
-        raise HTTPException(403, "비공개 모델입니다.")
-
+    # 1. 이미 구매했는지(저장했는지) 확인
     exists = db.query(models.UserSavedVoice).filter(
         models.UserSavedVoice.user_id == current_user.id,
         models.UserSavedVoice.voice_model_id == model_id
     ).first()
     
     if exists:
-        return {"msg": "이미 저장된 모델입니다."}
+        return {"msg": "이미 구매(저장)한 모델입니다."}
+    
+    # [주의] 자동 저장이 적용되었으므로, 모델 생성자는 이미 exists에 걸립니다.
+    # 따라서 아래 '내 모델 공짜' 로직은 사실상 실행될 일이 없지만, 방어 코드로 남겨두거나 삭제해도 됩니다.
+    # 여기서는 삭제합니다.
+
+    # 2. 비공개 모델 구매 불가
+    if not model.is_public:
+        raise HTTPException(403, "비공개 모델입니다.")
+
+    # 3. 잔액 확인
+    price = model.price or 0
+    if current_user.credit_balance < price:
+        raise HTTPException(400, "잔액이 부족합니다.")
+
+    # 4. 결제 로직 (70% 판매자, 30% 수수료)
+    try:
+        # 구매자 차감
+        current_user.credit_balance -= price
         
-    saved = models.UserSavedVoice(user_id=current_user.id, voice_model_id=model_id)
-    db.add(saved)
-    db.commit()
-    return {"msg": "모델이 라이브러리에 저장되었습니다."}
+        # 로그: 구매
+        db.add(models.CreditLog(
+            user_id=current_user.id,
+            amount=-price,
+            transaction_type="BUY_MODEL",
+            description=f"모델 구매: {model.model_name}",
+            reference_id=model.id
+        ))
+
+        # 수익 계산
+        creator_share = int(price * 0.70)
+        fee_share = price - creator_share
+
+        # 판매자 입금
+        creator = db.query(models.User).filter(models.User.id == model.user_id).first()
+        if creator:
+            creator.credit_balance += creator_share
+            db.add(models.CreditLog(
+                user_id=creator.id,
+                amount=creator_share,
+                transaction_type="SELL_MODEL",
+                description=f"모델 판매 수익: {model.model_name}",
+                reference_id=model.id
+            ))
+
+        # 관리자 수수료 입금
+        if fee_share > 0:
+            system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+            if system_admin:
+                system_admin.credit_balance += fee_share
+                db.add(models.CreditLog(
+                    user_id=system_admin.id,
+                    amount=fee_share,
+                    transaction_type="FEE_SELL_MODEL",
+                    description=f"모델 판매 수수료: {model.model_name}",
+                    reference_id=model.id
+                ))
+
+        # 5. 라이브러리에 추가
+        saved = models.UserSavedVoice(user_id=current_user.id, voice_model_id=model_id)
+        db.add(saved)
+        
+        model.usage_count += 1
+        db.commit()
+        
+        return {"msg": f"모델을 구매했습니다. (가격: {price} 크레딧)"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"결제 실패: {str(e)}")
 
 # [NEW] 목소리 저장 취소
 @app.delete("/voice/save/{model_id}")
@@ -523,24 +616,28 @@ async def unsave_voice_model(
     return {"msg": "라이브러리에서 삭제되었습니다."}
 
 # [NEW] 내 저장 목록 조회
-@app.get("/voice/saved_list", response_model=list[schemas.VoiceModelResponse])
+@app.get("/voice/my_list", response_model=list[schemas.VoiceModelResponse])
 async def list_saved_voices(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    saved_entries = db.query(models.UserSavedVoice).filter(models.UserSavedVoice.user_id == current_user.id).all()
-    saved_ids = [entry.voice_model_id for entry in saved_entries]
+    # [최적화] UserSavedVoice 테이블을 통해 한 번에 조회
+    # (이제 내 모델도 만들 때 UserSavedVoice에 추가되므로, 이것만 조회하면 됨)
+    saved_models = db.query(models.VoiceModel).join(
+        models.UserSavedVoice, 
+        models.UserSavedVoice.voice_model_id == models.VoiceModel.id
+    ).filter(
+        models.UserSavedVoice.user_id == current_user.id
+    ).all()
     
-    # 내 모델 OR 저장한 모델? -> 보통 "내 라이브러리"엔 둘 다 보여주는 게 편함
-    # 여기서는 "저장한 것"만 리턴 (프론트에서 내 모델은 따로 합치거나 할 수 있음)
-    # 하지만 사용자는 "선택 리스트"를 원하므로, 내 모델 + 저장한 모델을 합쳐서 주는 게 좋음
-    
-    my_models = db.query(models.VoiceModel).filter(models.VoiceModel.user_id == current_user.id).all()
-    saved_models = db.query(models.VoiceModel).filter(models.VoiceModel.id.in_(saved_ids)).all()
-    
-    # 중복 제거 (내가 내 모델을 저장했을 수도 있음)
-    combined = {m.id: m for m in my_models + saved_models}.values()
-    return list(combined)
+    # 응답 변환 (is_purchased=True)
+    results = []
+    for m in saved_models:
+        resp = schemas.VoiceModelResponse.from_orm(m)
+        resp.is_purchased = True
+        results.append(resp)
+        
+    return results
 
 
 # TTS 생성 (비용 차감 + 수익 분배 로직 적용)
@@ -550,25 +647,24 @@ async def generate_tts(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    COST = 50           # 1회 생성 비용
-    FEE_PERCENT = 0.80  # 플랫폼 수수료 80%
-
+    COST = 10           # [수정] 1회 생성 비용 10 (고정)
+    
+    # ... (모델, 권한, 학습 여부 확인 로직 동일 - 생략 불가하므로 반복)
     # 1. 모델 확인
     voice_model = db.query(models.VoiceModel).filter(models.VoiceModel.id == request.voice_model_id).first()
     if not voice_model:
         raise HTTPException(status_code=404, detail="모델이 없습니다.")
 
-    # 2. 권한 확인 (내 모델이거나, 저장된 모델이어야 함)
-    is_owner = (voice_model.user_id == current_user.id)
+    # 2. 권한 확인 (UserSavedVoice에 있으면 OK)
+    # [최적화] 이제 제작자도 UserSavedVoice에 있으므로 이것만 검사하면 됨
     is_saved = db.query(models.UserSavedVoice).filter(
         models.UserSavedVoice.user_id == current_user.id, 
         models.UserSavedVoice.voice_model_id == voice_model.id
     ).first()
 
-    if not is_owner and not is_saved:
-        raise HTTPException(status_code=403, detail="사용 권한이 없습니다. (먼저 모델을 저장해주세요)")
+    if not is_saved:
+        raise HTTPException(status_code=403, detail="사용 권한이 없습니다. (먼저 모델을 구매해주세요)")
     
-    # [NEW] 학습된 모델인지 확인
     if not voice_model.model_path:
          raise HTTPException(status_code=400, detail="학습이 완료되지 않은 모델입니다.")
 
@@ -578,7 +674,7 @@ async def generate_tts(
 
     # --- [결제 및 정산 로직 시작] ---
     try:
-        # A. 사용자 돈 차감 (선결제)
+        # A. 사용자 돈 차감
         current_user.credit_balance -= COST
         voice_model.usage_count += 1
         
@@ -592,56 +688,21 @@ async def generate_tts(
         )
         db.add(log_use)
 
-        # B. 수수료 및 수익 계산
-        platform_fee = int(COST * FEE_PERCENT) # 관리자가 가져갈 돈 (예: 5원)
-        net_revenue = COST - platform_fee      # 작가에게 줄 돈 (예: 45원)
-        
-        # C. 관리자(Admin) 입금
+        # B. 전액 관리자 수입 처리 (100%)
         system_admin = db.query(models.User).filter(models.User.username == "admin").first()
-        if system_admin and platform_fee > 0:
-            system_admin.credit_balance += platform_fee
+        if system_admin:
+            system_admin.credit_balance += COST
             
             log_admin = models.CreditLog(
                 user_id=system_admin.id,
-                amount=platform_fee,
-                transaction_type="FEE_IN",
-                description=f"TTS 수수료 (User {current_user.username} -> Model {voice_model.id})",
+                amount=COST,
+                transaction_type="FEE_TTS",
+                description=f"TTS 수익 (User {current_user.username} -> Model {voice_model.id})",
                 reference_id=voice_model.id
             )
             db.add(log_admin)
-        else:
-            if not system_admin:
-                net_revenue = COST 
 
-        # D. 목소리 주인(Owner) 입금 (수익 창출!)
-        owner = db.query(models.User).filter(models.User.id == voice_model.user_id).first()
-        
-        actual_payout = 0 
-        if owner:
-            actual_payout = int(net_revenue) 
-            owner.credit_balance += actual_payout
-            
-            log_owner = models.CreditLog(
-                user_id=owner.id,
-                amount=actual_payout,
-                transaction_type="REVENUE",
-                description=f"모델 수익 (사용자: {current_user.username})",
-                reference_id=voice_model.id
-            )
-            db.add(log_owner)
-
-        # E. 자투리(Dust) 처리
-        dust = COST - platform_fee - actual_payout
-        
-        if dust > 0 and system_admin:
-            system_admin.credit_balance += dust
-            db.add(models.CreditLog(
-                user_id=system_admin.id,
-                amount=dust,
-                transaction_type="FEE_DUST",
-                description="TTS 정산 자투리",
-                reference_id=voice_model.id
-            ))
+        # (기존 수익 분배 로직 삭제됨)
 
         # --- [AI 요청 로직] ---
         

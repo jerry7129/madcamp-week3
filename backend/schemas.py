@@ -53,6 +53,7 @@ class RPSGameRequest(BaseModel):
 class VoiceModelCreate(BaseModel):
     model_name: str
     description: Optional[str] = None
+    price: int = 1000  # [NEW]
     is_public: bool = False 
 
 # TTS 요청
@@ -66,10 +67,12 @@ class VoiceModelResponse(BaseModel):
     user_id: int
     model_name: str
     description: Optional[str] = None
+    price: int
     is_public: bool
     usage_count: int
     model_path: Optional[str] = None
     created_at: datetime
+    is_purchased: bool = False # [NEW] 구매 여부
 
     class Config:
         from_attributes = True

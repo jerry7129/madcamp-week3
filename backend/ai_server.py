@@ -21,8 +21,8 @@ app = FastAPI()
 # --- Fine-tuning wrapper logic ---
 
 # # Base Model Paths (To be created by user via WebUI)
-BASE_S1_PATH = "/workspace/GPT_weights_v2Pro/ttsmaker2-e15.ckpt"
-BASE_S2_PATH = "/workspace/SoVITS_weights_v2Pro/ttsmaker2_e8_s208.pth"
+BASE_S1_PATH = "/workspace/GPT_weights_v2Pro/TTSMaker5-e15.ckpt"
+BASE_S2_PATH = "/workspace/SoVITS_weights_v2Pro/TTSMaker5_e8_s320.pth"
 # BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/s1v3.ckpt"
 # BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/v2Pro/s2Gv2Pro.pth"
 

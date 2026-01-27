@@ -12,6 +12,7 @@ from jose import JWTError, jwt
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
+from typing import Optional
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=engine)

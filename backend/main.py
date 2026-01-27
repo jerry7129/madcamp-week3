@@ -700,16 +700,6 @@ async def create_voice_model(
         db.commit()
         db.refresh(new_model)
         
-        # [NEW] 제작자도 자동으로 '구매(소장)' 처리
-        # 이렇게 하면 나중에 권한 체크할 때 'UserSavedVoice'만 보면 됨 (is_owner 체크 불필요)
-        owner_saved = models.UserSavedVoice(user_id=current_user.id, voice_model_id=new_model.id)
-        db.add(owner_saved)
-        db.commit()
-        db.refresh(new_model)
-        
-        # 임시 공유 파일 삭제
-        if os.path.exists(shared_path): os.remove(shared_path)
-
         return {"msg": "목소리 모델 학습 완료", "model_id": new_model.id}
 
     except requests.exceptions.Timeout:
@@ -773,9 +763,9 @@ async def buy_voice_model(
     if exists:
         return {"msg": "이미 구매(저장)한 모델입니다."}
     
-    # [주의] 자동 저장이 적용되었으므로, 모델 생성자는 이미 exists에 걸립니다.
-    # 따라서 아래 '내 모델 공짜' 로직은 사실상 실행될 일이 없지만, 방어 코드로 남겨두거나 삭제해도 됩니다.
-    # 여기서는 삭제합니다.
+    # [SAFEGUARD] 내 모델은 구매할 수 없음 (이미 소유)
+    if model.user_id == current_user.id:
+        return {"msg": "본인이 제작한 모델입니다."}
 
     # 2. 비공개 모델 구매 불가
     if not model.is_public:
@@ -861,22 +851,40 @@ async def unsave_voice_model(
     db.commit()
     return {"msg": "라이브러리에서 삭제되었습니다."}
 
-# [NEW] 내 저장 목록 조회
+# [MODIFIED] 내 제작 목록 조회 (순수하게 내가 만든 것)
 @app.get("/voice/my_list", response_model=list[schemas.VoiceModelResponse])
-async def list_saved_voices(
+async def list_my_created_voices(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # [최적화] UserSavedVoice 테이블을 통해 한 번에 조회
-    # (이제 내 모델도 만들 때 UserSavedVoice에 추가되므로, 이것만 조회하면 됨)
+    # 내가 만든 모델만 조회
+    my_models = db.query(models.VoiceModel).filter(
+        models.VoiceModel.user_id == current_user.id
+    ).all()
+    
+    results = []
+    for m in my_models:
+        resp = schemas.VoiceModelResponse.from_orm(m)
+        resp.is_purchased = True # 내가 만든 건 내꺼
+        results.append(resp)
+        
+    return results
+
+# [NEW] 저장한 목록 조회 (내가 만든 것 제외)
+@app.get("/voice/saved_list", response_model=list[schemas.VoiceModelResponse])
+async def list_saved_voices_only(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # UserSavedVoice 중 내가 만든 모델은 제외하고 조회
     saved_models = db.query(models.VoiceModel).join(
         models.UserSavedVoice, 
         models.UserSavedVoice.voice_model_id == models.VoiceModel.id
     ).filter(
-        models.UserSavedVoice.user_id == current_user.id
+        models.UserSavedVoice.user_id == current_user.id,
+        models.VoiceModel.user_id != current_user.id # [중요] 내 모델 제외
     ).all()
     
-    # 응답 변환 (is_purchased=True)
     results = []
     for m in saved_models:
         resp = schemas.VoiceModelResponse.from_orm(m)
@@ -901,14 +909,15 @@ async def generate_tts(
     if not voice_model:
         raise HTTPException(status_code=404, detail="모델이 없습니다.")
 
-    # 2. 권한 확인 (UserSavedVoice에 있으면 OK)
-    # [최적화] 이제 제작자도 UserSavedVoice에 있으므로 이것만 검사하면 됨
+    # 2. 권한 확인 (UserSavedVoice에 있거나, 모델의 제작자여야 함)
     is_saved = db.query(models.UserSavedVoice).filter(
         models.UserSavedVoice.user_id == current_user.id, 
         models.UserSavedVoice.voice_model_id == voice_model.id
     ).first()
+    
+    is_owner = (voice_model.user_id == current_user.id)
 
-    if not is_saved:
+    if not is_saved and not is_owner:
         raise HTTPException(status_code=403, detail="사용 권한이 없습니다. (먼저 모델을 구매해주세요)")
     
     if not voice_model.model_path:

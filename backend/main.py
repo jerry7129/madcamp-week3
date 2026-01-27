@@ -739,6 +739,12 @@ async def list_available_voices(
         # Pydantic 모델로 변환
         resp = schemas.VoiceModelResponse.from_orm(model)
         resp.is_purchased = (is_mine or is_bought)
+        
+        # [NEW] 제작자 정보 주입
+        if model.creator:
+            resp.creator_name = model.creator.nickname or model.creator.username
+            resp.creator_profile_image = model.creator.profile_image
+            
         results.append(resp)
         
     return results
@@ -866,6 +872,11 @@ async def list_my_created_voices(
     for m in my_models:
         resp = schemas.VoiceModelResponse.from_orm(m)
         resp.is_purchased = True # 내가 만든 건 내꺼
+        
+        # [NEW] 제작자 정보 (나 자신)
+        resp.creator_name = current_user.nickname or current_user.username
+        resp.creator_profile_image = current_user.profile_image
+        
         results.append(resp)
         
     return results
@@ -889,6 +900,12 @@ async def list_saved_voices_only(
     for m in saved_models:
         resp = schemas.VoiceModelResponse.from_orm(m)
         resp.is_purchased = True
+        
+        # [NEW] 제작자 정보
+        if m.creator:
+            resp.creator_name = m.creator.nickname or m.creator.username
+            resp.creator_profile_image = m.creator.profile_image
+            
         results.append(resp)
         
     return results

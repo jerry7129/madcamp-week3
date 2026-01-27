@@ -22,6 +22,11 @@ class VoiceModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id")) # owner_id -> user_id로 통일
     
+    # [NEW] 제작자 정보 접근을 위한 관계 설정
+    from sqlalchemy.orm import relationship
+    creator = relationship("User", backref="voice_models")
+    
+    
     model_name = Column(String(100), nullable=False)  # 모델 이름
     description = Column(String(255), nullable=True)  # 모델 설명
     price = Column(Integer, default=0)             # [NEW] 모델 판매 가격

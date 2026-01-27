@@ -101,5 +101,9 @@ class VoiceModelResponse(BaseModel):
     created_at: datetime
     is_purchased: bool = False # [NEW] 구매 여부
 
+    # [NEW] 제작자 정보
+    creator_name: Optional[str] = None
+    creator_profile_image: Optional[str] = None
+
     class Config:
         from_attributes = True

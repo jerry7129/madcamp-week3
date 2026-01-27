@@ -47,6 +47,7 @@ class ChargeRequest(BaseModel):
 # --- 보이스 마켓 관련 ---
 class VoiceModelCreate(BaseModel):
     model_name: str
+    description: Optional[str] = None
     is_public: bool = False 
 
 # TTS 요청
@@ -59,6 +60,7 @@ class VoiceModelResponse(BaseModel):
     id: int
     user_id: int
     model_name: str
+    description: Optional[str] = None
     is_public: bool
     usage_count: int
     model_path: Optional[str] = None

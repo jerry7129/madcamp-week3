@@ -22,6 +22,7 @@ class VoiceModel(Base):
     user_id = Column(Integer, ForeignKey("users.id")) # owner_id -> user_id로 통일
     
     model_name = Column(String(100), nullable=False)  # 모델 이름
+    description = Column(String(255), nullable=True)  # 모델 설명
     model_path = Column(String(255), nullable=True)   # 학습된 모델 체크포인트 경로
     
     is_public = Column(Boolean, default=False)
@@ -79,4 +80,13 @@ class CreditLog(Base):
     transaction_type = Column(String(50)) 
     description = Column(String(255))
     reference_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+# 8. 유저가 저장한 보이스 모델 (Many-to-Many)
+class UserSavedVoice(Base):
+    __tablename__ = "user_saved_voices"
+    
+    # 복합 키 (Composite Key)
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    voice_model_id = Column(Integer, ForeignKey("voice_models.id"), primary_key=True)
     created_at = Column(DateTime, default=datetime.now)

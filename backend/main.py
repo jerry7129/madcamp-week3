@@ -353,6 +353,7 @@ async def create_voice_model(
         new_model = models.VoiceModel(
             user_id=current_user.id,
             model_name=name,
+            description=description, # [NEW]
             # ref_audio_path, ref_text 삭제됨
             model_path=model_path,    # 학습된 체크포인트
             is_public=is_public,
@@ -390,6 +391,74 @@ async def list_available_voices(
     ).all()
     return models_list
 
+# [NEW] 목소리 저장 (라이브러리 추가)
+@app.post("/voice/save/{model_id}")
+async def save_voice_model(
+    model_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    model = db.query(models.VoiceModel).filter(models.VoiceModel.id == model_id).first()
+    if not model:
+        raise HTTPException(404, "모델을 찾을 수 없습니다.")
+    
+    # 비공개 모델은 저장 불가 (내꺼 빼고)
+    if not model.is_public and model.user_id != current_user.id:
+        raise HTTPException(403, "비공개 모델입니다.")
+
+    exists = db.query(models.UserSavedVoice).filter(
+        models.UserSavedVoice.user_id == current_user.id,
+        models.UserSavedVoice.voice_model_id == model_id
+    ).first()
+    
+    if exists:
+        return {"msg": "이미 저장된 모델입니다."}
+        
+    saved = models.UserSavedVoice(user_id=current_user.id, voice_model_id=model_id)
+    db.add(saved)
+    db.commit()
+    return {"msg": "모델이 라이브러리에 저장되었습니다."}
+
+# [NEW] 목소리 저장 취소
+@app.delete("/voice/save/{model_id}")
+async def unsave_voice_model(
+    model_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    saved = db.query(models.UserSavedVoice).filter(
+        models.UserSavedVoice.user_id == current_user.id,
+        models.UserSavedVoice.voice_model_id == model_id
+    ).first()
+    
+    if not saved:
+        raise HTTPException(404, "저장된 내역이 없습니다.")
+        
+    db.delete(saved)
+    db.commit()
+    return {"msg": "라이브러리에서 삭제되었습니다."}
+
+# [NEW] 내 저장 목록 조회
+@app.get("/voice/saved_list", response_model=list[schemas.VoiceModelResponse])
+async def list_saved_voices(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    saved_entries = db.query(models.UserSavedVoice).filter(models.UserSavedVoice.user_id == current_user.id).all()
+    saved_ids = [entry.voice_model_id for entry in saved_entries]
+    
+    # 내 모델 OR 저장한 모델? -> 보통 "내 라이브러리"엔 둘 다 보여주는 게 편함
+    # 여기서는 "저장한 것"만 리턴 (프론트에서 내 모델은 따로 합치거나 할 수 있음)
+    # 하지만 사용자는 "선택 리스트"를 원하므로, 내 모델 + 저장한 모델을 합쳐서 주는 게 좋음
+    
+    my_models = db.query(models.VoiceModel).filter(models.VoiceModel.user_id == current_user.id).all()
+    saved_models = db.query(models.VoiceModel).filter(models.VoiceModel.id.in_(saved_ids)).all()
+    
+    # 중복 제거 (내가 내 모델을 저장했을 수도 있음)
+    combined = {m.id: m for m in my_models + saved_models}.values()
+    return list(combined)
+
+
 # TTS 생성 (비용 차감 + 수익 분배 로직 적용)
 @app.post("/tts/generate")
 async def generate_tts(
@@ -405,9 +474,15 @@ async def generate_tts(
     if not voice_model:
         raise HTTPException(status_code=404, detail="모델이 없습니다.")
 
-    # 2. 권한 확인 (비공개 모델 남이 쓰려할 때)
-    if not voice_model.is_public and voice_model.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="사용 권한이 없습니다.")
+    # 2. 권한 확인 (내 모델이거나, 저장된 모델이어야 함)
+    is_owner = (voice_model.user_id == current_user.id)
+    is_saved = db.query(models.UserSavedVoice).filter(
+        models.UserSavedVoice.user_id == current_user.id, 
+        models.UserSavedVoice.voice_model_id == voice_model.id
+    ).first()
+
+    if not is_owner and not is_saved:
+        raise HTTPException(status_code=403, detail="사용 권한이 없습니다. (먼저 모델을 저장해주세요)")
     
     # [NEW] 학습된 모델인지 확인
     if not voice_model.model_path:

@@ -389,13 +389,38 @@ def play_ladder_game(
     
     if is_win and match_count > 0:
         result_status = "WIN"
-        # 배당 계산 (1.8의 match_count승)
-        multiplier = 1.8 ** match_count
-        # 소수점 버림? 올림? -> 보통 정수 절삭
-        payout = int(game_req.bet_amount * multiplier)
         
-        # 순수익 = 지급액 - 배팅액
+        # [수정] 공정 배당 - 수수료 10% 방식
+        # 공정 확률: 1/2 (1개), 1/4 (2개), 1/8 (3개) -> 배당 2배, 4배, 8배
+        fair_odds = 2 ** match_count
+        
+        # 실제 배당 (수수료 10% 차감)
+        real_odds = fair_odds * 0.9
+        
+        # 유저에게 줄 금액 (소수점 버림)
+        payout = int(game_req.bet_amount * real_odds)
+        
+        # 순수익
         profit = payout - game_req.bet_amount
+
+        # [NEW] 관리자 수수료 (총 승리 금액의 10%)
+        # total_win_theory = game_req.bet_amount * fair_odds
+        # fee = int(total_win_theory * 0.1)
+        # 그냥 간단하게: (공정배당금액 - 실제지급액) 차액을 수수료로 간주
+        theory_payout = int(game_req.bet_amount * fair_odds)
+        fee = theory_payout - payout
+        
+        if fee > 0:
+            system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+            if system_admin:
+                system_admin.credit_balance += fee
+                db.add(models.CreditLog(
+                    user_id=system_admin.id,
+                    amount=fee,
+                    transaction_type="LADDER_FEE_IN",
+                    description=f"사다리 수수료 (User {current_user.username}, {match_count} Combo)",
+                    reference_id=None
+                ))
     else:
         # 패배 시: 배팅액만큼 차감
         profit = -game_req.bet_amount

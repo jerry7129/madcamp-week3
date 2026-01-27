@@ -31,7 +31,10 @@ services:
       - "3306"
     volumes:
       - ./mysql_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
 
   # 3. GPT-SoVITS (AI 엔진)
   gpt-sovits:

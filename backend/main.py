@@ -218,6 +218,94 @@ def play_rps_game(
         "current_balance": current_user.credit_balance
     }
 
+# [NEW] 홀짝 게임 API
+@app.post("/game/oddeven")
+def play_oddeven_game(
+    game_req: schemas.OddEvenGameRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 유효성 검사
+    if game_req.bet_amount <= 0:
+        raise HTTPException(400, "배팅 금액은 0보다 커야 합니다.")
+        
+    if current_user.credit_balance < game_req.bet_amount:
+        raise HTTPException(400, "크레딧이 부족합니다.")
+        
+    valid_choices = ["ODD", "EVEN"]
+    user_choice = game_req.choice.upper()
+    if user_choice not in valid_choices:
+        raise HTTPException(400, "ODD 또는 EVEN 중 하나를 선택하세요.")
+
+    # 2. 게임 로직
+    # 1부터 10까지 랜덤 숫자 생성 (1,3,5... 홀수 / 2,4,6... 짝수)
+    random_num = random.randint(1, 100)
+    server_result = "ODD" if random_num % 2 != 0 else "EVEN"
+    
+    # 승패 판정
+    result = "LOSE"
+    winnings = 0
+    
+    if user_choice == server_result:
+        result = "WIN"
+        # 90%만 획득 (배팅액 포함 아님, 순수 이익이 배팅액의 90%인 것으로 간주? 아님 RPS랑 똑같이)
+        # RPS 로직: 이기면 (배팅액 - 수수료)를 지급. (즉 원금 + 0.9*배팅액이 아니라, 그냥 0.9*배팅액을 줌?)
+        # 확인: RPS에서 user_choice == server_choice면 DRAW (본전).
+        # 이기면 winnings = bet - fee.
+        # current_user.credit_balance += winnings.
+        # 즉 원금(100) 걸고 이기면 100을 받는게 아니라 90을 "추가로" 받는게 아니라
+        # DB상으로는 balance += 90.
+        # 근데 배팅할 때 돈을 먼저 차감 안 함!
+        # RPS 코드 보면:
+        # 이기면: credit_balance += winnings (== 90)
+        # 지면: credit_balance += winnings (== -100)
+        # 즉 이기면 잔고가 +90 증가. (원금 유지 + 90 이득)
+        # 지면 잔고가 -100 감소. (원금 상실)
+        # 맞음.
+        
+        total_win = game_req.bet_amount
+        fee = int(total_win * 0.1)
+        winnings = total_win - fee
+        
+        # 관리자에게 수수료 입금
+        if fee > 0:
+            system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+            if system_admin:
+                system_admin.credit_balance += fee
+                db.add(models.CreditLog(
+                    user_id=system_admin.id,
+                    amount=fee,
+                    transaction_type="ODDEVEN_FEE_IN",
+                    description=f"홀짝 수수료 (User {current_user.username})",
+                    reference_id=None
+                ))
+    else:
+        result = "LOSE"
+        winnings = -game_req.bet_amount # 배팅액만큼 차감
+
+    # 3. 결과 반영
+    current_user.credit_balance += winnings
+    
+    # 로그 기록
+    log = models.CreditLog(
+        user_id=current_user.id,
+        amount=winnings,
+        transaction_type=f"ODDEVEN_{result}",
+        description=f"홀짝: {user_choice} vs {server_result} ({random_num})",
+        reference_id=None
+    )
+    db.add(log)
+    db.commit()
+
+    return {
+        "result": result,
+        "user_choice": user_choice,
+        "server_choice": server_result,
+        "random_number": random_num,
+        "credit_change": winnings,
+        "current_balance": current_user.credit_balance
+    }
+
 # =========================================================
 # 2. [Betting System] 팀, 경기, 투표 기능 (복구됨!)
 # =========================================================

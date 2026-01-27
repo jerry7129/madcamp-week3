@@ -50,6 +50,11 @@ class RPSGameRequest(BaseModel):
     bet_amount: int
     choice: str  # "ROCK", "PAPER", "SCISSORS"
 
+# [NEW] 홀짝 게임 요청
+class OddEvenGameRequest(BaseModel):
+    bet_amount: int
+    choice: str # "ODD", "EVEN"
+
 # --- 보이스 마켓 관련 ---
 class VoiceModelCreate(BaseModel):
     model_name: str

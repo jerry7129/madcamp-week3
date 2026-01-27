@@ -25,8 +25,8 @@ app = FastAPI()
 # BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s1.ckpt"
 # BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s2.pth"
 # Base Model Paths (Found in gsv-v2final-pretrained)
-BASE_S1_PATH = "/workspace/GPT_SoVITS/GPT_weights_v2Pro/xxx-e15.ckpt"
-BASE_S2_PATH = "/workspace/GPT_SoVITS/SoVITS_weights_v2Pro/xxx_e8_s96.pth"
+BASE_S1_PATH = "/workspace/GPT_weights_v2Pro/xxx-e15.ckpt"
+BASE_S2_PATH = "/workspace/SoVITS_weights_v2Pro/xxx_e8_s96.pth"
 
 class TrainRequest(BaseModel):
     user_id: str

@@ -18,10 +18,13 @@ app = original_app
 
 # --- Fine-tuning wrapper logic ---
 
-# Base Model Paths (To be created by user via WebUI)
-# These should be in /workspace/GPT_SoVITS/pretrained_models/custom_base/
-BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s1.ckpt"
-BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s2.pth"
+# # Base Model Paths (To be created by user via WebUI)
+# # These should be in /workspace/GPT_SoVITS/pretrained_models/custom_base/
+# BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s1.ckpt"
+# BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/custom_base/s2.pth"
+# Base Model Paths (Found in gsv-v2final-pretrained)
+BASE_S1_PATH = "/workspace/GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
+BASE_S2_PATH = "/workspace/GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
 
 class TrainRequest(BaseModel):
     user_id: str

@@ -12,7 +12,7 @@ import uvicorn
 # [IMPORTANT] Import original api_v2 to reuse TTS logic
 # The container mounts GPT-SoVITS at /workspace
 sys.path.append("/workspace")
-from api_v2 import APP as original_app, tts_handle
+from api_v2 import APP as original_app, tts_handle, tts_pipeline
 
 # Create a new FastAPI app to avoid route conflicts with api_v2.APP
 # We only want OUR /tts handler, not the original one.

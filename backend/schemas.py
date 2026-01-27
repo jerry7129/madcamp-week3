@@ -44,6 +44,11 @@ class VoteCreate(BaseModel):
 class ChargeRequest(BaseModel):
     amount: int
 
+# [NEW] 가위바위보 게임 요청
+class RPSGameRequest(BaseModel):
+    bet_amount: int
+    choice: str  # "ROCK", "PAPER", "SCISSORS"
+
 # --- 보이스 마켓 관련 ---
 class VoiceModelCreate(BaseModel):
     model_name: str

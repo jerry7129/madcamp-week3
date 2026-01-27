@@ -97,9 +97,93 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     )
     return {"access_token": token, "token_type": "bearer"}
 
+import random # [NEW]
+
+# ... (Imports)
+
 @app.get("/users/me", response_model=schemas.UserResponse)
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
+
+# [NEW] 가위바위보 게임 API
+@app.post("/game/rps")
+def play_rps_game(
+    game_req: schemas.RPSGameRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 유효성 검사
+    if game_req.bet_amount <= 0:
+        raise HTTPException(400, "배팅 금액은 0보다 커야 합니다.")
+        
+    if current_user.credit_balance < game_req.bet_amount:
+        raise HTTPException(400, "크레딧이 부족합니다.")
+        
+    valid_choices = ["ROCK", "PAPER", "SCISSORS"]
+    user_choice = game_req.choice.upper()
+    if user_choice not in valid_choices:
+        raise HTTPException(400, "ROCK, PAPER, SCISSORS 중 하나를 선택하세요.")
+
+    # 2. 게임 로직
+    server_choice = random.choice(valid_choices)
+    
+    # 승패 판정
+    result = "DRAW"
+    winnings = 0
+    
+    if user_choice == server_choice:
+        result = "DRAW"
+        # 비기면 본전 (돈 변화 없음)
+    elif (
+        (user_choice == "ROCK" and server_choice == "SCISSORS") or
+        (user_choice == "PAPER" and server_choice == "ROCK") or
+        (user_choice == "SCISSORS" and server_choice == "PAPER")
+    ):
+        result = "WIN"
+        # [수정] 90%만 획득, 10%는 수수료
+        total_win = game_req.bet_amount
+        fee = int(total_win * 0.1)
+        winnings = total_win - fee
+        
+        # 관리자에게 수수료 입금
+        if fee > 0:
+            system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+            if system_admin:
+                system_admin.credit_balance += fee
+                db.add(models.CreditLog(
+                    user_id=system_admin.id,
+                    amount=fee,
+                    transaction_type="RPS_FEE_IN",
+                    description=f"RPS 수수료 (User {current_user.username})",
+                    reference_id=None
+                ))
+
+    else:
+        result = "LOSE"
+        winnings = -game_req.bet_amount # 배팅액만큼 차감 (100% 잃음)
+
+    # 3. 결과 반영
+    if result != "DRAW":
+        current_user.credit_balance += winnings
+        
+        # 로그 기록
+        log = models.CreditLog(
+            user_id=current_user.id,
+            amount=winnings,
+            transaction_type=f"RPS_{result}",
+            description=f"가위바위보: {user_choice} vs {server_choice}",
+            reference_id=None
+        )
+        db.add(log)
+        db.commit()
+
+    return {
+        "result": result,
+        "user_choice": user_choice,
+        "server_choice": server_choice,
+        "credit_change": winnings,
+        "current_balance": current_user.credit_balance
+    }
 
 # =========================================================
 # 2. [Betting System] 팀, 경기, 투표 기능 (복구됨!)

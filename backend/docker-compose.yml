@@ -46,6 +46,7 @@ services:
       - ../checkpoint:/workspace/logs # [NEW] 체크포인트 저장소
       - ./temp_shared:/shared
       - ./ai_server.py:/workspace/ai_server.py # [NEW] 래퍼 스크립트 마운트
+      - ../voice_dataset:/workspace/voice_dataset # [NEW] 데이터셋 마운트
     deploy:
       resources:
         reservations:

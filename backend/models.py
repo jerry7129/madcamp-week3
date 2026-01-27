@@ -24,7 +24,7 @@ class VoiceModel(Base):
     
     model_name = Column(String(100), nullable=False)  # 모델 이름
     description = Column(String(255), nullable=True)  # 모델 설명
-    price = Column(Integer, default=1000)             # [NEW] 모델 판매 가격
+    price = Column(Integer, default=0)             # [NEW] 모델 판매 가격
     model_path = Column(String(255), nullable=True)   # 학습된 모델 체크포인트 경로
     
     is_public = Column(Boolean, default=False)

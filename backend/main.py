@@ -422,7 +422,7 @@ def decide_match_result(
 async def create_voice_model(
     name: str = Form(...),
     description: str = Form(None),
-    price: int = Form(1000), # [NEW] 가격 설정 (기본 1000)
+    price: int = Form(0), # [NEW] 가격 설정 (기본 0)
     is_public: bool = Form(False),
     ref_text: str = Form(...),
     audio_file: UploadFile = File(...),

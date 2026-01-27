@@ -68,7 +68,7 @@ class VoiceModelResponse(BaseModel):
     user_id: int
     model_name: str
     description: Optional[str] = None
-    price: int
+    price: Optional[int] = 0 # None이면 0으로 처리
     is_public: bool
     usage_count: int
     model_path: Optional[str] = None

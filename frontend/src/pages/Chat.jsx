@@ -8,6 +8,7 @@ import {
   fetchMyVoices,
   fetchSavedVoiceList,
   synthesizeTts,
+  generateTts,
 } from '../api'
 import useCredits from '../hooks/useCredits'
 

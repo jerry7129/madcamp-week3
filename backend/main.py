@@ -871,6 +871,20 @@ async def create_voice_model(
         db.add(new_model)
         db.commit()
         db.refresh(new_model)
+
+        # [NEW] 샘플 오디오 자동 생성 (비동기 처리 권장이지만 여기선 동기 처리)
+        try:
+            sample_text = "안녕하세요. 제 목소리를 들어보세요."
+            demo_url = _internal_tts_process(
+                text=sample_text,
+                voice_model_path=model_path,
+                user_id=current_user.id
+            )
+            new_model.demo_audio_url = demo_url
+            db.commit()
+        except Exception as e:
+            print(f"샘플 생성 실패 (무시됨): {e}")
+            # 샘플 생성 실패해도 모델 생성은 성공으로 간주
         
         return {"msg": "목소리 모델 학습 완료", "model_id": new_model.id}
 

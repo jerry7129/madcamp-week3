@@ -188,6 +188,14 @@ function SharePage() {
 
   const extractRefAudioPath = (voice) => {
     if (!voice || typeof voice !== 'object') return ''
+    
+    // 1. Pre-generated demo audio (Prioritized)
+    const demo = 
+      voice.demo_audio_url || 
+      voice.demoAudioUrl
+    if (typeof demo === 'string' && demo.trim()) return demo.trim()
+
+    // 2. Direct paths
     const direct =
       voice.ref_audio_path ||
       voice.refAudioPath ||
@@ -199,11 +207,11 @@ function SharePage() {
       voice.sampleAudioUrl ||
       voice.preview_audio_url ||
       voice.previewAudioUrl ||
-      voice.demo_audio_url ||
-      voice.demoAudioUrl ||
       voice.audio_url ||
       voice.audioUrl
     if (typeof direct === 'string' && direct.trim()) return direct.trim()
+
+    // 3. Nested paths
     const nested =
       voice.sample?.audio_url ||
       voice.sample?.audioUrl ||
@@ -467,6 +475,47 @@ function SharePage() {
   const handlePreviewTts = async (voice) => {
     if (previewLoadingId) return
     const resolvedId = voice.modelId || getVoiceModelId(voice.raw || voice)
+    
+    // [NEW] 1. 미리 만들어진 샘플이 있는지 확인 (TTS 생성 없이 즉시 재생)
+    const existingSample = extractRefAudioPath(voice.raw || voice)
+    if (existingSample) {
+        if (previewUrl === existingSample && previewVoiceId === voice.id && audioRef.current && !audioRef.current.paused) {
+            audioRef.current.pause()
+            return
+        }
+        
+        setPreviewLoadingId(voice.id)
+        setStatus('샘플 로딩 중...')
+        
+        if (audioRef.current) {
+            audioRef.current.pause()
+        }
+        if (previewUrl && previewUrl !== existingSample) {
+             // URL.revokeObjectURL(previewUrl) // Don't revoke remote URLs usually, but if blob check needed
+        }
+
+        setPreviewUrl(existingSample)
+        setPreviewVoiceId(voice.id)
+
+        if (!audioRef.current) {
+            audioRef.current = new Audio()
+        }
+        audioRef.current.src = existingSample
+        audioRef.current.muted = false
+        audioRef.current.onended = () => setStatus(null)
+        audioRef.current.onplay = () => setStatus('샘플 보이스 재생 중...')
+        audioRef.current.onerror = () => setStatus('재생 실패 (권한 혹은 파일 없음)')
+        
+        try {
+            await audioRef.current.play()
+        } catch (e) {
+            setStatus('재생 실패: ' + e.message)
+        } finally {
+            setPreviewLoadingId(null)
+        }
+        return
+    }
+
     if (!resolvedId) {
       setStatus('미리듣기 가능한 보이스 ID가 없습니다.')
       return

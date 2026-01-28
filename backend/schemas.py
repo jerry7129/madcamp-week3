@@ -136,6 +136,7 @@ class VoiceModelResponse(BaseModel):
     is_public: bool
     usage_count: int
     model_path: Optional[str] = None
+    demo_audio_url: Optional[str] = None # [NEW]
     created_at: datetime
     is_purchased: bool = False # [NEW] 구매 여부
 

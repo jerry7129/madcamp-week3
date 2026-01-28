@@ -662,9 +662,15 @@ function ChatPage() {
                 <button
                   className="btn ghost chat-tts-toggle"
                   type="button"
-                  onClick={handlePauseToggle}
+                  onClick={() => {
+                    if (item.audioUrl && item.audioUrl === audioUrl) {
+                      handlePauseToggle()
+                    } else {
+                      handlePlayBotTts(item)
+                    }
+                  }}
                 >
-                  {isPaused ? '재생' : '일시정지'}
+                  {item.audioUrl === audioUrl && !isPaused ? '일시정지' : '재생'}
                 </button>
               ) : null}
 

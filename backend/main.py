@@ -878,7 +878,9 @@ async def create_voice_model(
             demo_url = _internal_tts_process(
                 text=sample_text,
                 voice_model_path=model_path,
-                user_id=current_user.id
+                user_id=current_user.id,
+                ref_audio_path=shared_path, # 학습 시 사용한 파일 재사용
+                prompt_text=ref_text        # 학습 시 사용한 텍스트 재사용
             )
             new_model.demo_audio_url = demo_url
             db.commit()
@@ -1258,12 +1260,20 @@ async def chat_text_only(
     }
 
 # [NEW] 내부 전용 TTS 처리 함수 (채팅에서도 쓰려고 분리)
-def _internal_tts_process(text: str, voice_model_path: str, user_id: int) -> str:
+# [NEW] 내부 전용 TTS 처리 함수 (채팅에서도 쓰려고 분리)
+def _internal_tts_process(
+    text: str, 
+    voice_model_path: str, 
+    user_id: int, 
+    ref_audio_path: str = None, 
+    prompt_text: str = ""
+) -> str:
     payload = {
         "text": text,
         "text_lang": "ko",
         "model_path": voice_model_path,
-        "prompt_text": "", 
+        "ref_audio_path": ref_audio_path, # [NEW]
+        "prompt_text": prompt_text,       # [NEW]
         "prompt_lang": "ko",
         "text_split_method": "cut5",
         "speed_factor": 1.0

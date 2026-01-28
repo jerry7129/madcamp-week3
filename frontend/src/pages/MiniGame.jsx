@@ -421,6 +421,15 @@ function MiniGamePage() {
   const [playerScore, setPlayerScore] = useState(null)
   const [opponentScore, setOpponentScore] = useState(null)
   const [cardResult, setCardResult] = useState('')
+  const [baccaratRevealed, setBaccaratRevealed] = useState([false, false, false, false])
+  const [baccaratDealing, setBaccaratDealing] = useState(false)
+  const baccaratTimersRef = useRef([])
+  const [baccaratPrediction, setBaccaratPrediction] = useState(null)
+  const [baccaratStake, setBaccaratStake] = useState(String(MIN_STAKE))
+  const [baccaratMessage, setBaccaratMessage] = useState('')
+  const [baccaratOutcome, setBaccaratOutcome] = useState(null)
+  const [baccaratHit, setBaccaratHit] = useState(null)
+  const [baccaratDelta, setBaccaratDelta] = useState(null)
   const [predictionChoice, setPredictionChoice] = useState(null)
   const [predictionAmount, setPredictionAmount] = useState(
     Number.isFinite(Number(storedMinigame?.predictionAmount))
@@ -929,41 +938,97 @@ function MiniGamePage() {
     }
   }, [])
 
+  const clearBaccaratTimers = () => {
+    baccaratTimersRef.current.forEach((timerId) => clearTimeout(timerId))
+    baccaratTimersRef.current = []
+  }
+
   const dealCards = () => {
+    if (baccaratDealing) return
+    if (!baccaratPrediction) {
+      setBaccaratMessage('예측을 선택하세요.')
+      return
+    }
+    const stakeValue = Math.floor(Number(baccaratStake))
+    if (!Number.isFinite(stakeValue) || stakeValue < MIN_STAKE) {
+      setBaccaratMessage(`베팅 크레딧은 ${MIN_STAKE} 이상이어야 합니다.`)
+      return
+    }
+    if (credits < stakeValue) {
+      setBaccaratMessage('크레딧이 부족합니다.')
+      return
+    }
+    setBaccaratMessage('')
+    clearBaccaratTimers()
     const deck = shuffleDeck(buildDeck())
     const nextPlayerHand = [deck.pop(), deck.pop()]
     const nextOpponentHand = [deck.pop(), deck.pop()]
     const nextPlayerScore = scoreHand(nextPlayerHand)
     const nextOpponentScore = scoreHand(nextOpponentHand)
-    let nextResult = 'Draw'
-    if (nextPlayerScore > nextOpponentScore) {
-      nextResult = 'Player wins'
-    } else if (nextPlayerScore < nextOpponentScore) {
-      nextResult = 'Opponent wins'
+    const outcome =
+      nextPlayerScore === nextOpponentScore
+        ? 'TIE'
+        : nextPlayerScore > nextOpponentScore
+          ? 'PLAYER'
+          : 'BANKER'
+    const outcomeLabels = {
+      PLAYER: '플레이어 승',
+      BANKER: '상대 승',
+      TIE: '무승부',
     }
+    const hit = baccaratPrediction === outcome
+    const delta = hit
+      ? Math.round(stakeValue * (outcome === 'TIE' ? 2.0 : 0.9))
+      : -stakeValue
 
     setPlayerHand(nextPlayerHand)
     setOpponentHand(nextOpponentHand)
     setPlayerScore(nextPlayerScore)
     setOpponentScore(nextOpponentScore)
-    setCardResult(nextResult)
+    setCardResult(outcomeLabels[outcome])
     setCardPhase('dealt')
-    if (nextResult === 'Player wins') {
-      applyOutcome('win')
-    } else if (nextResult === 'Opponent wins') {
-      applyOutcome('lose')
-    } else {
-      applyOutcome('draw')
-    }
+    setBaccaratRevealed([false, false, false, false])
+    setBaccaratDealing(true)
+    setBaccaratOutcome(outcome)
+    setBaccaratHit(hit)
+    setBaccaratDelta(delta)
+    setCredits((prev) => Math.max(prev + delta, 0))
+
+    const revealOrder = [0, 1, 2, 3]
+    revealOrder.forEach((index, step) => {
+      const timerId = setTimeout(() => {
+        setBaccaratRevealed((prev) => {
+          if (!prev[index]) {
+            const next = [...prev]
+            next[index] = true
+            return next
+          }
+          return prev
+        })
+        if (step === revealOrder.length - 1) {
+          setBaccaratDealing(false)
+        }
+      }, 120 + step * 150)
+      baccaratTimersRef.current.push(timerId)
+    })
   }
 
   const resetCards = () => {
+    clearBaccaratTimers()
     setPlayerHand([])
     setOpponentHand([])
     setPlayerScore(null)
     setOpponentScore(null)
     setCardResult('')
     setCardPhase('idle')
+    setBaccaratRevealed([false, false, false, false])
+    setBaccaratDealing(false)
+    setBaccaratPrediction(null)
+    setBaccaratStake(String(MIN_STAKE))
+    setBaccaratMessage('')
+    setBaccaratOutcome(null)
+    setBaccaratHit(null)
+    setBaccaratDelta(null)
   }
 
   const totalVotes =
@@ -2045,22 +2110,71 @@ function MiniGamePage() {
     }
 
     if (activeGame === 'baccarat') {
+      const outcomeLabels = {
+        PLAYER: '플레이어 승',
+        BANKER: '상대 승',
+        TIE: '무승부',
+      }
+      const predictionLabels = {
+        PLAYER: '플레이어 승',
+        BANKER: '상대 승',
+        TIE: '무승부',
+      }
       return (
         <Section
           title="바카라"
-          subtitle="카드를 나눠 점수를 비교하는 연습용 게임입니다."
-          actions={
-            <div className="card-actions">
-              <button className="btn" type="button" onClick={dealCards}>
-                카드 나누기
-              </button>
-              <button className="btn" type="button" onClick={resetCards}>
-                초기화
-              </button>
-            </div>
-          }
+          subtitle="예측을 선택하고 베팅한 뒤 결과를 확인합니다."
         >
           <>
+              <div className="prediction-form">
+                <div className="prediction-options">
+                  {[
+                    { id: 'PLAYER', label: '플레이어 승' },
+                    { id: 'BANKER', label: '상대 승' },
+                    { id: 'TIE', label: '무승부' },
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`prediction-option ${
+                        baccaratPrediction === option.id ? 'active' : ''
+                      }`}
+                      onClick={() => setBaccaratPrediction(option.id)}
+                      disabled={cardPhase === 'dealt'}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="prediction-actions">
+                  <label className="inline-field">
+                    베팅 크레딧
+                    <input
+                      type="number"
+                      min={MIN_STAKE}
+                      value={baccaratStake}
+                      onChange={(event) => setBaccaratStake(event.target.value)}
+                      disabled={cardPhase === 'dealt'}
+                    />
+                  </label>
+                  <button
+                    className="btn primary"
+                    type="button"
+                    onClick={dealCards}
+                    disabled={baccaratDealing}
+                  >
+                    카드 나누기
+                  </button>
+                  <button className="btn neutral" type="button" onClick={resetCards}>
+                    초기화
+                  </button>
+                </div>
+                {baccaratMessage ? <p className="status">{baccaratMessage}</p> : null}
+                <p className="muted">
+                  플레이어/상대/무승부를 예측하고 베팅합니다. 예측이 맞아야 승리합니다.
+                </p>
+              </div>
+
               <div className="cardgame-board">
                 <div className="cardgame-side">
                   <span className="muted">Player</span>
@@ -2068,12 +2182,22 @@ function MiniGamePage() {
                     {playerHand.length === 0 ? (
                       <span className="muted">대기 중</span>
                     ) : (
-                      playerHand.map((card, index) => (
-                        <div key={`p-${index}`} className="cardgame-card">
-                          <span>{card.rank}</span>
-                          <span>{card.suit}</span>
-                        </div>
-                      ))
+                      playerHand.map((card, index) => {
+                        const isRevealed = baccaratRevealed[index] || false
+                        return (
+                          <div key={`p-${index}`} className="cardgame-card">
+                            <div className="card-flip">
+                              <div className={`card-flip-inner ${isRevealed ? 'revealed' : ''}`}>
+                                <div className="card-face card-back" />
+                                <div className="card-face card-front">
+                                  <span>{card.rank}</span>
+                                  <span>{card.suit}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
                     )}
                   </div>
                   <strong className="cardgame-score">{playerScore ?? '-'}</strong>
@@ -2084,12 +2208,22 @@ function MiniGamePage() {
                     {opponentHand.length === 0 ? (
                       <span className="muted">대기 중</span>
                     ) : (
-                      opponentHand.map((card, index) => (
-                        <div key={`o-${index}`} className="cardgame-card">
-                          <span>{card.rank}</span>
-                          <span>{card.suit}</span>
-                        </div>
-                      ))
+                      opponentHand.map((card, index) => {
+                        const isRevealed = baccaratRevealed[index + 2] || false
+                        return (
+                          <div key={`o-${index}`} className="cardgame-card">
+                            <div className="card-flip">
+                              <div className={`card-flip-inner ${isRevealed ? 'revealed' : ''}`}>
+                                <div className="card-face card-back" />
+                                <div className="card-face card-front">
+                                  <span>{card.rank}</span>
+                                  <span>{card.suit}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
                     )}
                   </div>
                   <strong className="cardgame-score">{opponentScore ?? '-'}</strong>
@@ -2103,6 +2237,24 @@ function MiniGamePage() {
               >
                 <strong>{cardPhase === 'dealt' ? cardResult : '카드를 나눠주세요.'}</strong>
               </div>
+
+              {cardPhase === 'dealt' ? (
+                <div className="prediction-result">
+                  <strong>결과 요약</strong>
+                  <p>결과: {baccaratOutcome ? outcomeLabels[baccaratOutcome] : '-'}</p>
+                  <p>
+                    내 예측:{' '}
+                    {baccaratPrediction ? predictionLabels[baccaratPrediction] : '-'}
+                  </p>
+                  <p>적중 여부: {baccaratHit ? '성공' : '실패'}</p>
+                  <p className="muted">
+                    크레딧 변화:{' '}
+                    {baccaratDelta != null
+                      ? `${baccaratDelta >= 0 ? '+' : '-'}${Math.abs(baccaratDelta)}`
+                      : '0'}
+                  </p>
+                </div>
+              ) : null}
 
               <p className="muted cardgame-rule">
                 A=1, 2~9=숫자 그대로, 10/J/Q/K=0. 두 장 합의 10의 자리 제거로

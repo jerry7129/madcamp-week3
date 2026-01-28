@@ -320,29 +320,33 @@ function MyPage() {
   }
 
   const handleShare = async (voiceId, voiceData) => {
-    if (voiceData?.is_public || voiceData?.isPublic) {
-      setVoiceStatus('이미 공유된 보이스입니다.')
-      return
-    }
+    const currentlyPublic = Boolean(voiceData?.is_public || voiceData?.isPublic)
+    const nextPublic = !currentlyPublic
     try {
-      await shareVoice(voiceId)
+      await shareVoice(voiceId, nextPublic)
       setVoices((prev) =>
         prev.map((voice, index) => {
           const id = getVoiceId(voice, index)
           if (id !== voiceId) return voice
-          return { ...voice, is_public: true, isPublic: true }
+          return { ...voice, is_public: nextPublic, isPublic: nextPublic }
         }),
       )
       setSharedVoiceIds((prev) => {
         const normalized = normalizeId(voiceId)
-        if (!normalized || prev.includes(normalized)) return prev
-        const next = [...prev, normalized]
+        if (!normalized) return prev
+        if (nextPublic) {
+          if (prev.includes(normalized)) return prev
+          const next = [...prev, normalized]
+          writeSharedIds(next)
+          return next
+        }
+        const next = prev.filter((id) => id !== normalized)
         writeSharedIds(next)
         return next
       })
-      setVoiceStatus('공유 설정 완료')
+      setVoiceStatus(nextPublic ? '공유 설정 완료' : '미공개로 전환되었습니다.')
     } catch (error) {
-      setVoiceStatus(`공유 실패: ${error.message}`)
+      setVoiceStatus(`${nextPublic ? '공유' : '미공개'} 실패: ${error.message}`)
     }
   }
 
@@ -776,7 +780,7 @@ function MyPage() {
                       type="button"
                       onClick={() => handleShare(actionId, voice)}
                     >
-                      공유
+                      {isPublic ? '미공개' : '공유'}
                     </button>
                     <button
                       className="btn btn-action danger"

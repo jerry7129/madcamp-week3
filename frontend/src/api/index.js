@@ -399,19 +399,33 @@ export async function decideMatch(payload) {
   })
 }
 
-export async function shareVoice(voiceId) {
+export async function shareVoice(voiceId, isPublic = true) {
   if (isMockEnabled) {
-    return mockShareVoice(voiceId)
+    return mockShareVoice(voiceId, isPublic)
   }
-  const endpoints = [
-    {
-      url: `${APP_API_BASE_URL}/voice/update/${voiceId}`,
-      options: {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_public: true }),
-      },
+  const updateEndpoint = {
+    url: `${APP_API_BASE_URL}/voice/update/${voiceId}`,
+    options: {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_public: isPublic }),
     },
+  }
+
+  if (!isPublic) {
+    const response = await fetch(updateEndpoint.url, {
+      ...updateEndpoint.options,
+      headers: buildAuthHeaders(updateEndpoint.options.headers || {}),
+    })
+    if (!response.ok) {
+      const errorMessage = await resolveErrorMessage(response)
+      throw new Error(errorMessage || '미공개 처리에 실패했습니다.')
+    }
+    return response.json?.() ?? response
+  }
+
+  const endpoints = [
+    updateEndpoint,
     {
       url: `${APP_API_BASE_URL}/voice/${voiceId}/share`,
       options: { method: 'POST' },

@@ -200,46 +200,7 @@ export async function fetchMe() {
   return requestJson(`${APP_API_BASE_URL}/users/me`)
 }
 
-export async function updateProfile(payload) {
-  const url = `${APP_API_BASE_URL}/users/me`
-  const hasFile = payload?.profileImage instanceof Blob
-  const body = hasFile
-    ? (() => {
-        const form = new FormData()
-        if (payload?.nickname) form.set('nickname', payload.nickname)
-        if (payload?.email) form.set('email', payload.email)
-        if (payload?.password) form.set('password', payload.password)
-        form.set('profile_image', payload.profileImage)
-        return form
-      })()
-    : JSON.stringify(payload)
-  const headers = hasFile
-    ? buildAuthHeaders()
-    : buildAuthHeaders({ 'Content-Type': 'application/json' })
-  const send = async (method) => {
-    const response = await fetch(url, {
-      method,
-      headers,
-      body,
-      credentials: 'include',
-    })
-    if (!response.ok) {
-      const message = await response.text()
-      const error = new Error(message || 'Request failed')
-      error.status = response.status
-      throw error
-    }
-    return response.json()
-  }
-  try {
-    return await send('PATCH')
-  } catch (error) {
-    if (error?.status === 405) {
-      return await send('PUT')
-    }
-    throw error
-  }
-}
+
 
 export async function loginWithGoogle(idToken) {
   return requestJson(`${APP_API_BASE_URL}/auth/google`, {

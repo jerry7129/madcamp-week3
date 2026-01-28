@@ -1232,7 +1232,7 @@ async def chat_text_only(
          raise HTTPException(status_code=500, detail="서버에 Gemini API 키가 설정되지 않았습니다.")
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
         prompt = f"당신은 '{voice_model.model_name}'라는 캐릭터입니다. 캐릭터의 말투를 사용하여 사용자의 말에 대해 50자 이내로 짧고 자연스럽게 한국어로 대답해주세요.\n사용자: {request.text}"
         
         response = model.generate_content(prompt)

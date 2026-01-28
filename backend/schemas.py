@@ -19,6 +19,12 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    nickname: Optional[str] = None
+    profile_image: Optional[str] = None
+    # password 수정은 별도 로직 권장하지만 필요시 추가 가능
+
 class Token(BaseModel):
     access_token: str
     token_type: str

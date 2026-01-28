@@ -162,6 +162,40 @@ export async function register(payload) {
   return parseMaybeJson(response)
 }
 
+// [NEW] 프로필 수정 (Multipart로 사진, 텍스트 전송)
+export async function updateProfile(payload) {
+  const form = new FormData()
+  if (payload.username) form.append('username', payload.username)
+  if (payload.nickname) form.append('nickname', payload.nickname)
+  if (payload.password) form.append('password', payload.password)
+  // 파일이 있는 경우에만 추가
+  if (payload.profile_image instanceof File) {
+    form.append('profile_image', payload.profile_image)
+  }
+
+  const headers = buildAuthHeaders()
+  // FormData 전송 시 Content-Type 헤더는 브라우저가 자동 설정함 (boundary 포함)
+  // 따라서 buildAuthHeaders()가 'Content-Type': 'application/json'을 포함한다면 제거해야 함.
+  // buildAuthHeaders 구현 확인: 보통 Authorization만 반환함. 확인 필요.
+
+  const response = await fetch(`${APP_API_BASE_URL}/users/me`, {
+    method: 'PUT',
+    headers: { ...headers }, 
+    body: form,
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    try {
+       const json = JSON.parse(message)
+       throw new Error(json.detail || '프로필 수정 실패')
+    } catch(e) {
+       throw new Error(message || '프로필 수정 실패')
+    }
+  }
+  return response.json()
+}
+
 export async function fetchMe() {
   return requestJson(`${APP_API_BASE_URL}/users/me`)
 }

@@ -163,6 +163,57 @@ import random # [NEW]
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
+# [NEW] 유저 정보 수정 (프로필 사진 포함)
+@app.put("/users/me", response_model=schemas.UserResponse)
+async def update_users_me(
+    username: Optional[str] = Form(None),
+    nickname: Optional[str] = Form(None),
+    profile_image: UploadFile = File(None),
+    password: Optional[str] = Form(None), # [NEW] 검증용 비밀번호
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 아이디(이메일) 변경 시 비밀번호 검증 및 중복 체크
+    if username and username != current_user.username:
+        # 비밀번호 확인
+        if not password or not pwd_context.verify(password, current_user.password):
+            raise HTTPException(status_code=401, detail="이메일 변경을 위해서는 현재 비밀번호 확인이 필요합니다.")
+
+        existing = db.query(models.User).filter(models.User.username == username).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="이미 존재하는 아이디(이메일)입니다.")
+        current_user.username = username
+        
+    # 2. 닉네임 변경
+    if nickname is not None:
+        current_user.nickname = nickname
+        
+    # 3. 프로필 이미지 변경
+    if profile_image:
+        try:
+            user_profile_dir = os.path.join(STATIC_DIR, "profiles", str(current_user.id))
+            os.makedirs(user_profile_dir, exist_ok=True)
+            
+            # 기존 이미지 삭제 (용량 관리) - 선택사항이지만 권장
+            # (여기서는 덮어쓰기 로직이므로 생략하거나, 파일명이 다르면 삭제 로직 추가 가능)
+            
+            file_ext = os.path.splitext(profile_image.filename)[1] or ".png"
+            # 캐시 방지를 위해 난수/시간 추가
+            filename = f"profile_{uuid.uuid4().hex[:8]}{file_ext}"
+            save_path = os.path.join(user_profile_dir, filename)
+            
+            with open(save_path, "wb") as buffer:
+                shutil.copyfileobj(profile_image.file, buffer)
+                
+            current_user.profile_image = f"/static/profiles/{current_user.id}/{filename}"
+        except Exception as e:
+            print(f"이미지 업데이트 실패: {e}")
+            raise HTTPException(status_code=500, detail="프로필 이미지 저장 실패")
+
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
 # [NEW] 가위바위보 게임 API
 @app.post("/game/rps")
 def play_rps_game(

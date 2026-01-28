@@ -435,7 +435,7 @@ function MyPage() {
     const storedEmail =
       (typeof window !== 'undefined' && localStorage.getItem('email')) || ''
     if (storedEmail && storedEmail !== nextEmail && !emailPassword.trim()) {
-      setProfileStatus('이메일 변경 시 비밀번호를 입력하세요.')
+      setProfileStatus('이메일 변경 시 비밀번호 확인이 필요합니다.')
       return
     }
     setSavingProfile(true)
@@ -443,14 +443,14 @@ function MyPage() {
     try {
       const payload = {
         nickname: nextNickname,
-        email: nextEmail,
+        username: nextEmail,
       }
       if (storedEmail && storedEmail !== nextEmail) {
         payload.password = emailPassword
       }
       const result = await updateProfile(payload)
       const updatedNickname = result?.nickname || nextNickname
-      const updatedEmail = result?.email || result?.username || nextEmail
+      const updatedEmail = result?.username || result?.email || nextEmail
       setProfileNickname(updatedNickname)
       setProfileEmail(updatedEmail)
       localStorage.setItem('nickname', updatedNickname)
@@ -489,7 +489,7 @@ function MyPage() {
     const previewUrl = URL.createObjectURL(file)
     setAvatarUrl(previewUrl)
     setProfileStatus('프로필 이미지 저장 중...')
-    updateProfile({ profileImage: file })
+    updateProfile({ profile_image: file })
       .then((result) => {
         const rawAvatar =
           result?.profile_image ||
@@ -563,12 +563,12 @@ function MyPage() {
                     onChange={(event) => setProfileEmail(event.target.value)}
                   />
                 </Field>
-                <Field label="비밀번호" hint="이메일 변경 시 필수">
+                <Field label="이메일 변경 시 비밀번호 (필수)">
                   <input
                     type="password"
                     value={emailPassword}
                     onChange={(event) => setEmailPassword(event.target.value)}
-                    placeholder="비밀번호 입력"
+                    placeholder="현재 비밀번호 입력"
                   />
                 </Field>
               </div>

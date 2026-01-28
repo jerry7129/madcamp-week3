@@ -306,12 +306,17 @@ function ChatPage() {
       setStatus('이 브라우저는 음성 인식을 지원하지 않습니다.')
       return
     }
-    setStatus(null)
+    
     if (isListening) {
+      // Stop Recording
       recognitionRef.current.stop()
       setIsListening(false)
+      setStatus(null) // or '녹음 중지됨'
       return
     }
+
+    // Start Recording
+    setStatus('녹음 사용 완료') // [Request] "녹음 사용 완료 메세지가 나오고..."
     setIsListening(true)
     recognitionRef.current.start()
   }
@@ -686,17 +691,43 @@ function ChatPage() {
                   }
                 }}
               />
-              <button
-                className={`btn ghost chat-mic chat-mic-inline ${
-                  isListening ? 'listening' : ''
-                }`}
-                type="button"
-                onClick={handleSpeechToggle}
-                aria-pressed={isListening}
-                aria-label="음성 인식으로 입력"
-              >
-                🎤
-              </button>
+              {/* [MODIFIED] 녹음 시작/중지 버튼 분리 */}
+              {!isListening ? (
+                <button
+                  className="btn ghost chat-mic chat-mic-inline"
+                  type="button"
+                  onClick={() => {
+                      if (handleSpeechToggle) handleSpeechToggle()
+                      // 메시지는 handleSpeechToggle 내부에서 설정됨
+                  }}
+                  aria-label="음성 인식 시작"
+                  title="음성 인식 시작"
+                >
+                  🎤
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="btn ghost chat-mic chat-mic-inline"
+                    type="button"
+                    disabled
+                    aria-label="녹음 중 (버튼 비활성화)"
+                    style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                  >
+                    🎤
+                  </button>
+                  <button
+                    className="btn ghost chat-stop chat-mic-inline"
+                    type="button"
+                    onClick={handleSpeechToggle}
+                    aria-label="녹음 중지"
+                    title="녹음 중지"
+                    style={{ color: '#ff4b4b' }}
+                  >
+                    ⏹️
+                  </button>
+                </>
+              )}
             </div>
             <div className="chat-input-actions">
               <button

@@ -134,3 +134,13 @@ class VoiceModelResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# --- [NEW] 채팅 관련 스키마 ---
+class ChatRequest(BaseModel):
+    text: str
+    voice_model_id: int
+
+class ChatResponse(BaseModel):
+    reply_text: str
+    audio_url: str
+    remaining_credits: int

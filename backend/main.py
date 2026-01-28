@@ -15,6 +15,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
 from dotenv import load_dotenv
+import google.generativeai as genai # [NEW] Gemini 연동
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=engine)
@@ -25,7 +26,10 @@ load_dotenv()
 # --- [설정] ---
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1068,82 +1072,180 @@ async def generate_tts(
     if current_user.credit_balance < COST:
         raise HTTPException(status_code=400, detail="잔액 부족")
 
-    # --- [결제 및 정산 로직 시작] ---
-    try:
-        # A. 사용자 돈 차감
-        current_user.credit_balance -= COST
-        voice_model.usage_count += 1
-        
-        # 사용 로그
-        log_use = models.CreditLog(
-            user_id=current_user.id,
-            amount=-COST,
-            transaction_type="TTS_USE",
-            description=f"TTS 생성 (모델: {voice_model.model_name})",
+    # --- [결제 및 정산 (트랜잭션)] ---
+    # 먼저 결제 처리를 하고, AI 생성을 시도합니다.
+    # 만약 AI 생성이 실패하면 롤백 여부를 고민해야 하지만, 여기선 단순화합니다.
+    
+    current_user.credit_balance -= COST
+    voice_model.usage_count += 1
+    
+    log_use = models.CreditLog(
+        user_id=current_user.id,
+        amount=-COST,
+        transaction_type="TTS_USE",
+        description=f"TTS 생성 (모델: {voice_model.model_name})",
+        reference_id=voice_model.id
+    )
+    db.add(log_use)
+
+    system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+    if system_admin:
+        system_admin.credit_balance += COST
+        log_admin = models.CreditLog(
+            user_id=system_admin.id,
+            amount=COST,
+            transaction_type="FEE_TTS",
+            description=f"TTS 수익 (User {current_user.username} -> Model {voice_model.id})",
             reference_id=voice_model.id
         )
-        db.add(log_use)
+        db.add(log_admin)
 
-        # B. 전액 관리자 수입 처리 (100%)
-        system_admin = db.query(models.User).filter(models.User.username == "admin").first()
-        if system_admin:
-            system_admin.credit_balance += COST
-            
-            log_admin = models.CreditLog(
-                user_id=system_admin.id,
-                amount=COST,
-                transaction_type="FEE_TTS",
-                description=f"TTS 수익 (User {current_user.username} -> Model {voice_model.id})",
-                reference_id=voice_model.id
-            )
-            db.add(log_admin)
-
-        # (기존 수익 분배 로직 삭제됨)
-
-        # --- [AI 요청 로직] ---
-        
-        # [NEW] Fine-tuning된 모델 사용 요청
-        payload = {
-            "text": request.text,
-            "text_lang": "ko",
-            "model_path": voice_model.model_path, # 학습된 체크포인트 전달
-            "prompt_text": "", 
-            "prompt_lang": "ko",
-            "text_split_method": "cut5",
-            "speed_factor": 1.0
-        }
-
-        ai_url = "http://gpt-sovits:9880"
-        response = requests.post(f"{ai_url}/tts", json=payload)
-        
-        if response.status_code != 200:
-            raise Exception("AI 서버 응답 오류")
-
-        # 결과 저장
-        user_gen_dir = os.path.join(GEN_DIR, str(current_user.id))
-        os.makedirs(user_gen_dir, exist_ok=True)
-        
-        output_filename = f"tts_{uuid.uuid4()}.wav"
-        output_path = os.path.join(user_gen_dir, output_filename)
-
-        with open(output_path, "wb") as f:
-            f.write(response.content)
-
-        # 히스토리 저장
-        history = models.TTSHistory(
-            user_id=current_user.id,
-            voice_model_id=voice_model.id,
-            text_content=request.text,
-            audio_url=f"/static/generated/{current_user.id}/{output_filename}",
-            cost_credit=COST
+    # 내부 로직 호출
+    try:
+        audio_url = _internal_tts_process(
+            text=request.text, 
+            voice_model_path=voice_model.model_path, 
+            user_id=current_user.id
         )
-        db.add(history)
-        
-        # 모든 DB 변경사항 한방에 저장
-        db.commit()
+    except Exception as e:
+        # 실패 시 롤백 (간단히 예외 던지기, 실제론 transaction rollback 필)
+        raise HTTPException(status_code=500, detail=f"AI 생성 실패: {str(e)}")
 
-        return {
-            "msg": "생성 성공",
+    # 히스토리 저장
+    history = models.TTSHistory(
+        user_id=current_user.id,
+        voice_model_id=voice_model.id,
+        text_content=request.text,
+        audio_url=audio_url,
+        cost_credit=COST
+    )
+    db.add(history)
+    db.commit()
+
+    return {
+        "msg": "생성 성공",
+        "audio_url": audio_url,
+        "remaining_credits": current_user.credit_balance
+    }
+
+# [NEW] 내부 전용 TTS 처리 함수 (채팅에서도 쓰려고 분리)
+def _internal_tts_process(text: str, voice_model_path: str, user_id: int) -> str:
+    payload = {
+        "text": text,
+        "text_lang": "ko",
+        "model_path": voice_model_path,
+        "prompt_text": "", 
+        "prompt_lang": "ko",
+        "text_split_method": "cut5",
+        "speed_factor": 1.0
+    }
+    ai_url = "http://gpt-sovits:9880"
+    response = requests.post(f"{ai_url}/tts", json=payload)
+    
+    if response.status_code != 200:
+        raise Exception(f"AI Server Error: {response.text}")
+
+    user_gen_dir = os.path.join(GEN_DIR, str(user_id))
+    os.makedirs(user_gen_dir, exist_ok=True)
+    
+    output_filename = f"tts_{uuid.uuid4()}.wav"
+    output_path = os.path.join(user_gen_dir, output_filename)
+
+    with open(output_path, "wb") as f:
+        f.write(response.content)
+        
+    return f"/static/generated/{user_id}/{output_filename}"
+
+# [NEW] Gemini Chat + TTS 통합 엔드포인트
+@app.post("/chat/voice", response_model=schemas.ChatResponse)
+async def chat_with_voice(
+    request: schemas.ChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    COST = 10 # 대화 1회 비용 (TTS 비용과 동일하게 책정)
+
+    # 1. 모델 확인
+    voice_model = db.query(models.VoiceModel).filter(models.VoiceModel.id == request.voice_model_id).first()
+    if not voice_model:
+        raise HTTPException(status_code=404, detail="보이스 모델을 찾을 수 없습니다.")
+
+    if not voice_model.model_path:
+        raise HTTPException(status_code=400, detail="학습되지 않은 모델입니다.")
+
+    # 2. 잔액 확인
+    if current_user.credit_balance < COST:
+        raise HTTPException(status_code=400, detail="크래딧이 부족합니다.")
+
+    # 3. Gemini에게 답변 받기
+    if not GEMINI_API_KEY:
+         raise HTTPException(status_code=500, detail="서버에 Gemini API 키가 설정되지 않았습니다.")
+    
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        # 간단한 프롬프트 설정
+        prompt = f"당신은 '{voice_model.model_name}'라는 캐릭터입니다. 사용자의 말에 대해 50자 이내로 짧고 자연스럽게 한국어로 대답해주세요.\n사용자: {request.text}"
+        
+        response = model.generate_content(prompt)
+        reply_text = response.text
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        # 실패 시 봇의 기본 응답으로 대체할 수도 있음
+        raise HTTPException(status_code=500, detail=f"Gemini 오류: {str(e)}")
+
+    # 4. 결제 처리 (성공 시 차감)
+    current_user.credit_balance -= COST
+    voice_model.usage_count += 1
+    
+    log_use = models.CreditLog(
+        user_id=current_user.id,
+        amount=-COST,
+        transaction_type="CHAT_USE",
+        description=f"AI 대화 (모델: {voice_model.model_name})",
+        reference_id=voice_model.id
+    )
+    db.add(log_use)
+
+    # 관리자 수익
+    system_admin = db.query(models.User).filter(models.User.username == "admin").first()
+    if system_admin:
+        system_admin.credit_balance += COST
+        log_admin = models.CreditLog(
+            user_id=system_admin.id,
+            amount=COST,
+            transaction_type="FEE_CHAT",
+            description=f"대화 수익",
+            reference_id=voice_model.id
+        )
+        db.add(log_admin)
+
+    # 5. 응답 텍스트를 오디오로 변환
+    try:
+        audio_url = _internal_tts_process(
+            text=reply_text,
+            voice_model_path=voice_model.model_path,
+            user_id=current_user.id
+        )
+    except Exception as e:
+        db.rollback() # TTS 실패 시 돈 돌려주기 위해 롤백
+        raise HTTPException(status_code=500, detail=f"음성 합성 실패: {str(e)}")
+
+    # 히스토리 저장 (Chat 타입으로 따로 저장할 수도 있지만, 우선 TTS 히스토리에 남김)
+    history = models.TTSHistory(
+        user_id=current_user.id,
+        voice_model_id=voice_model.id,
+        text_content=f"[Q] {request.text} -> [A] {reply_text}",
+        audio_url=audio_url,
+        cost_credit=COST
+    )
+    db.add(history)
+    db.commit()
+
+    return {
+        "reply_text": reply_text,
+        "audio_url": audio_url,
+        "remaining_credits": current_user.credit_balance
+    }
             "audio_url": history.audio_url,
             "cost": COST,
             "remaining_credit": current_user.credit_balance

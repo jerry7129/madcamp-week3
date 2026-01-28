@@ -39,7 +39,8 @@ services:
 
   # 3. GPT-SoVITS (AI 엔진)
   gpt-sovits:
-    image: gpt-sovits-custom # 이미지 이름 지정
+    build: ../GPT-SoVITS # [NEW] Dockerfile 빌드 사용 (이미지 이름 대신)
+    image: gpt-sovits-custom # 빌드된 이미지에 이름 붙이기
     shm_size: 16G         # [중요] AI 모델은 공유 메모리가 많이 필요함
     ports:
       - "9880:9880"       # 내부 API 통신용
@@ -61,6 +62,6 @@ services:
             - driver: nvidia  # GPU 사용 설정 (필수)
               count: 1
               capabilities: [gpu]
-    # 도커가 켜질 때 실행할 명령어 (패키지 설치 후 API 실행)
+    # 도커가 켜질 때 실행할 명령어 (pip install은 이제 Dockerfile에서 하므로 제거)
     command: >
-      sh -c "pip install faster_whisper && python ai_server.py"
+      sh -c "python ai_server.py"

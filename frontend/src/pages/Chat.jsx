@@ -425,7 +425,7 @@ function ChatPage() {
             audioRef.current.pause()
           }
           audioRef.current = new Audio(nextUrl)
-          audioRef.current.onended = () => setIsPaused(false)
+          audioRef.current.onended = () => setIsPaused(true)
           audioRef.current.play().catch(() => {})
           setIsPaused(false)
           
@@ -544,7 +544,7 @@ function ChatPage() {
         audioRef.current.pause()
       }
       audioRef.current = new Audio(nextUrl)
-      audioRef.current.onended = () => setIsPaused(false)
+      audioRef.current.onended = () => setIsPaused(true)
       audioRef.current.play().catch(() => {})
       setIsPaused(false)
     } catch (ttsError) {

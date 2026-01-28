@@ -7,8 +7,12 @@ if (typeof window !== 'undefined') {
   localStorage.removeItem('voice-tags-map')
 }
 
+import { CreditProvider } from './hooks/useCredits'
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <CreditProvider>
+      <App />
+    </CreditProvider>
   </StrictMode>,
 )

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import { fetchCredits } from '../api'
 
 const STORAGE_KEY = 'tts-credits'
@@ -7,25 +7,24 @@ const DISABLE_LIMIT =
   import.meta.env.VITE_DISABLE_CREDIT_LIMIT === 'true' || import.meta.env.DEV
 
 const readStoredCredits = () => {
+  if (typeof window === 'undefined') return DEFAULT_CREDITS
   const raw = localStorage.getItem(STORAGE_KEY)
   const parsed = Number(raw)
   return Number.isFinite(parsed) ? parsed : DEFAULT_CREDITS
 }
 
-function useCredits(initialCredits = DEFAULT_CREDITS) {
-  const [credits, setCredits] = useState(() => {
-    if (typeof window === 'undefined') return initialCredits
-    return readStoredCredits()
-  })
+const CreditContext = createContext(null)
 
+export function CreditProvider({ children }) {
+  const [credits, setCredits] = useState(() => readStoredCredits())
+
+  // 1. Persist to LocalStorage
   useEffect(() => {
-    if (typeof window === 'undefined') return
     localStorage.setItem(STORAGE_KEY, String(credits))
-    window.dispatchEvent(new Event('credits-changed'))
   }, [credits])
 
+  // 2. Sync from Server (on mount & focus)
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined
     let cancelled = false
     const syncCreditsFromServer = async () => {
       try {
@@ -34,10 +33,12 @@ function useCredits(initialCredits = DEFAULT_CREDITS) {
           setCredits(serverCredits)
         }
       } catch {
-        // ignore sync errors to avoid blocking UI
+        // ignore errors
       }
     }
+    
     syncCreditsFromServer()
+    
     const handleFocus = () => syncCreditsFromServer()
     window.addEventListener('focus', handleFocus)
     return () => {
@@ -46,22 +47,15 @@ function useCredits(initialCredits = DEFAULT_CREDITS) {
     }
   }, [])
 
+  // 3. Sync from other tabs (storage event) is optional but good
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const syncFromStorage = () => {
+    const handleStorage = (event) => {
+      if (event?.key && event.key !== STORAGE_KEY) return
       const next = readStoredCredits()
       setCredits((prev) => (prev === next ? prev : next))
     }
-    const handleStorage = (event) => {
-      if (event?.key && event.key !== STORAGE_KEY) return
-      syncFromStorage()
-    }
-    window.addEventListener('credits-changed', syncFromStorage)
     window.addEventListener('storage', handleStorage)
-    return () => {
-      window.removeEventListener('credits-changed', syncFromStorage)
-      window.removeEventListener('storage', handleStorage)
-    }
+    return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
   const spendCredits = (amount = 1) => {
@@ -69,16 +63,45 @@ function useCredits(initialCredits = DEFAULT_CREDITS) {
       setCredits((prev) => Math.max(prev - amount, 0))
       return true
     }
-    if (credits < amount) return false
-    setCredits(credits - amount)
-    return true
+    let success = false
+    setCredits((prev) => {
+      if (prev < amount) return prev
+      success = true
+      return prev - amount
+    })
+    return success
   }
 
   const addCredits = (amount = 1) => {
     setCredits((prev) => prev + amount)
   }
 
-  return { credits, spendCredits, addCredits, setCredits }
+  // Value object memoized to prevent unnecessary re-renders
+  const value = useMemo(() => ({
+    credits,
+    spendCredits,
+    addCredits,
+    setCredits
+  }), [credits])
+
+  return (
+    <CreditContext.Provider value={value}>
+      {children}
+    </CreditContext.Provider>
+  )
+}
+
+function useCredits() {
+  const context = useContext(CreditContext)
+  if (!context) {
+    // If used outside provider, behave like a local state (backward compatibility fallback or error)
+    // For safety, let's just return a local state dummy to prevent crash, but strictly it should be wrapped.
+    // However, since we are wrapping App, this should be fine.
+    // Retaining old logic as fallback would be complex. Let's warn.
+    console.warn('useCredits must be used within a CreditProvider')
+    return { credits: 0, spendCredits: () => false, addCredits: () => {}, setCredits: () => {} }
+  }
+  return context
 }
 
 export default useCredits

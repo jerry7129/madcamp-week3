@@ -13,16 +13,18 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, F
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from typing import Optional
+from dotenv import load_dotenv
 
 # DB 테이블 생성
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+load_dotenv()
 
 # --- [설정] ---
-SECRET_KEY = "my_super_secret_key_change_this"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24시간
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
 
 # 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1165,3 +1167,26 @@ def charge_credit(req: schemas.ChargeRequest, current_user: models.User = Depend
     db.add(log)
     db.commit()
     return {"msg": "충전 완료", "balance": current_user.credit_balance}
+
+# [NEW] 프론트엔드 정적 파일 서빙 (React + Vite)
+FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend/dist")
+
+if os.path.exists(FRONTEND_DIR):
+    # 1. Assets 폴더 (js, css 등) 마운트
+    # Vite는 보통 dist/assets 안에 빌드 결과물을 넣습니다.
+    # 프론트에서 /assets/... 로 요청하면 여기서 처리
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+    # 2. SPA 라우팅 (모든 경로 -> index.html)
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # API 요청이나 이미 정의된 /static 요청은 위에서 먼저 걸러짐
+        
+        # 만약 dist 폴더에 있는 실존 파일(예: vite.svg, robots.txt)이라면 그걸 반환
+        file_path = os.path.join(FRONTEND_DIR, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        # 그 외에는 무조건 index.html 반환 (React Router가 처리)
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+else:
+    print(f"경고: 프론트엔드 빌드 폴더({FRONTEND_DIR})가 없습니다. API 전용 모드로 동작합니다.")

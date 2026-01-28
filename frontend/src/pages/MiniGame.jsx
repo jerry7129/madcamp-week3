@@ -2233,6 +2233,8 @@ function MiniGamePage() {
               <div
                 className={`cardgame-result ${
                   cardPhase === 'dealt' ? 'result-reveal' : ''
+                } ${baccaratHit === true ? 'result-win' : ''} ${
+                  baccaratHit === false ? 'result-lose' : ''
                 }`}
               >
                 <strong>{cardPhase === 'dealt' ? cardResult : '카드를 나눠주세요.'}</strong>

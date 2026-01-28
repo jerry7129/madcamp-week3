@@ -173,6 +173,19 @@ function SharePage() {
   const SILENT_AUDIO =
     'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA='
 
+  const refreshSharedVoices = async () => {
+    try {
+      const sharedResult = await fetchSharedVoices()
+      const sharedItems = Array.isArray(sharedResult)
+        ? sharedResult
+        : sharedResult?.items || sharedResult?.voices || sharedResult || []
+      const normalizedShared = Array.isArray(sharedItems) ? sharedItems : []
+      setSharedVoices(normalizedShared)
+    } catch (error) {
+      setStatus(`공유 보이스 불러오기 실패: ${error.message}`)
+    }
+  }
+
   const extractRefAudioPath = (voice) => {
     if (!voice || typeof voice !== 'object') return ''
     const direct =
@@ -246,6 +259,16 @@ function SharePage() {
     load()
     return () => {
       mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleSharedUpdate = () => {
+      refreshSharedVoices()
+    }
+    window.addEventListener('shared-voices-updated', handleSharedUpdate)
+    return () => {
+      window.removeEventListener('shared-voices-updated', handleSharedUpdate)
     }
   }, [])
 

@@ -344,6 +344,11 @@ function MyPage() {
         writeSharedIds(next)
         return next
       })
+      window.dispatchEvent(
+        new CustomEvent('shared-voices-updated', {
+          detail: { voiceId, isPublic: nextPublic },
+        }),
+      )
       setVoiceStatus(nextPublic ? '공유 설정 완료' : '미공개로 전환되었습니다.')
     } catch (error) {
       setVoiceStatus(`${nextPublic ? '공유' : '미공개'} 실패: ${error.message}`)

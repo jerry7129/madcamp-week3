@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional
 from datetime import datetime
 
@@ -16,6 +16,14 @@ class UserResponse(BaseModel):
     credit_balance: int
     profile_image: Optional[str] = None # [NEW]
     created_at: datetime
+    
+    # [CACHE BUSTING] 기본 프로필 이미지 변경 시 캐시 무효화
+    @validator('profile_image', check_fields=False)
+    def bust_cache(cls, v):
+        if v == "/static/default_profile.png":
+             return "/static/default_profile.png?v=2"
+        return v
+
     class Config:
         from_attributes = True
 

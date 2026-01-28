@@ -527,16 +527,21 @@ export async function fetchVoiceModels(params = {}) {
   return requestJson(withQuery(`${APP_API_BASE_URL}/voice-models`, params))
 }
 
-export async function synthesizeTts(payload, { directEngine = false } = {}) {
+// [NEW] TTS 생성 요청 (JSON 반환 - URL 저장용)
+export async function generateTts(payload, { directEngine = false } = {}) {
   const baseUrl = directEngine ? TTS_API_BASE_URL : APP_API_BASE_URL
   const path = directEngine ? '/tts' : '/tts/generate'
   const url = `${baseUrl}${path}`
 
-  const result = await requestJson(url, {
+  return requestJson(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
+
+export async function synthesizeTts(payload, { directEngine = false } = {}) {
+  const result = await generateTts(payload, { directEngine })
 
   const resolveAudioUrl = (rawUrl) => {
     if (!rawUrl) return ''

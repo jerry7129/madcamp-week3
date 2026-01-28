@@ -379,7 +379,7 @@ function ChatPage() {
         return
       }
 
-      // [NEW] TTS 비동기 요청 시작
+      // [NEW] TTS 비동기 요청 시작 (URL 지속성을 위해 JSON 요청 사용)
       (async () => {
         try {
           const voiceIdValue = Number(selectedVoice)
@@ -387,35 +387,24 @@ function ChatPage() {
             ? voiceIdValue
             : selectedVoice
             
-          const trySynthesize = async () =>
-            synthesizeTts({
-              text: botText,
-              voice_model_id: voiceModelId,
-            })
-            
-          let blob
-          let retried = false
-          while (true) {
-            try {
-              blob = await trySynthesize()
-              break
-            } catch (ttsError) {
-              const message = String(ttsError?.message || '')
-              const isInsufficient =
-                message.includes('잔액 부족') || message.toLowerCase().includes('insufficient')
-              if (!retried && isInsufficient) {
-                await chargeCredits(CHARGE_AMOUNT)
-                await syncCredits({ allowDecrease: false })
-                retried = true
-                continue
-              }
-              throw ttsError
-            }
+          const result = await generateTts({
+            text: botText,
+            voice_model_id: voiceModelId,
+          })
+          
+          let nextUrl = result?.audio_url || result?.audioUrl || result?.url || ''
+          
+          if (!nextUrl) {
+             throw new Error('오디오 URL을 찾을 수 없습니다.')
+          }
+
+          // 서버 경로(상대경로)인 경우 전체 URL로 변환
+          if (nextUrl.startsWith('/')) {
+              // APP_API_BASE_URL이 끝에 슬래시가 있는지 확인 필요하지만 보통 없음
+              nextUrl = `${APP_API_BASE_URL}${nextUrl}`
           }
           
-          const nextUrl = URL.createObjectURL(blob)
-          
-          // [NEW] 히스토리에 오디오 URL 업데이트
+          // [NEW] 히스토리에 오디오 URL 업데이트 (서버 URL 저장)
           setChatHistory(prev => {
              const updated = [...prev]
              const lastIdx = updated.length - 1
@@ -429,6 +418,7 @@ function ChatPage() {
           if (audioRef.current) {
             audioRef.current.pause()
           }
+          // 서버에서 바로 스트리밍/재생
           audioRef.current = new Audio(nextUrl)
           audioRef.current.onended = () => setIsPaused(false)
           audioRef.current.play().catch(() => {})
@@ -441,7 +431,7 @@ function ChatPage() {
              idx === prev.length - 1 ? { ...item, isLoading: false } : item
            ))
         }
-      })() // Fire and forget (don't await here to unlock UI)
+      })() // Fire and forget
 
     } catch (error) {
       if (spent) {
@@ -517,31 +507,20 @@ function ChatPage() {
       const voiceModelId = Number.isFinite(voiceIdValue)
         ? voiceIdValue
         : selectedVoice
-      const trySynthesize = async () =>
-        synthesizeTts({
-          text,
-          voice_model_id: voiceModelId,
-        })
-      let blob
-      let retried = false
-      while (true) {
-        try {
-          blob = await trySynthesize()
-          break
-        } catch (ttsError) {
-          const message = String(ttsError?.message || '')
-          const isInsufficient =
-            message.includes('잔액 부족') || message.toLowerCase().includes('insufficient')
-          if (!retried && isInsufficient) {
-            await chargeCredits(CHARGE_AMOUNT)
-            await syncCredits({ allowDecrease: false })
-            retried = true
-            continue
-          }
-          throw ttsError
-        }
+      const result = await generateTts({
+        text,
+        voice_model_id: voiceModelId,
+      })
+      
+      let nextUrl = result?.audio_url || result?.audioUrl || result?.url || ''
+      
+      if (!nextUrl) {
+          throw new Error('오디오 URL을 찾을 수 없습니다.')
       }
-      const nextUrl = URL.createObjectURL(blob)
+
+      if (nextUrl.startsWith('/')) {
+        nextUrl = `${APP_API_BASE_URL}${nextUrl}`
+      }
       
       // [NEW] 생성된 오디오 URL 저장 (다음에 클릭 시 바로 재생)
       setChatHistory(prev => prev.map(msg => 

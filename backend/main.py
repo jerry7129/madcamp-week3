@@ -10,6 +10,7 @@ from database import engine, get_db
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from typing import Optional

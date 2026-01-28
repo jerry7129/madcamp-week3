@@ -1173,9 +1173,16 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend/dist")
 
 if os.path.exists(FRONTEND_DIR):
     # 1. Assets 폴더 (js, css 등) 마운트
+    # 1. Assets 폴더 (js, css 등) 마운트
     # Vite는 보통 dist/assets 안에 빌드 결과물을 넣습니다.
     # 프론트에서 /assets/... 로 요청하면 여기서 처리
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+
+    # [NEW] 루트 경로(/) 처리 -> index.html 반환
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
     # 2. SPA 라우팅 (모든 경로 -> index.html)
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):

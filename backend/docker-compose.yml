@@ -13,6 +13,7 @@ services:
     volumes:
       - ./temp_shared:/shared
       - ./static:/backend/static
+      - ../frontend/dist:/frontend/dist # [NEW] 프론트엔드 빌드 파일 마운트
     environment:
       - GPT_SOVITS_URL=http://gpt-sovits:9880
       - SHARED_DIR=/shared # 백엔드가 파일 저장할 경로

@@ -10,6 +10,7 @@ import {
   synthesizeTts,
   generateTts,
 } from '../api'
+import { APP_API_BASE_URL } from '../api/client'
 import useCredits from '../hooks/useCredits'
 
 const CHAT_STORAGE_KEY = 'chat-history'

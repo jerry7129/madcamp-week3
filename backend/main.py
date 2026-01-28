@@ -1128,6 +1128,50 @@ async def generate_tts(
         "remaining_credits": current_user.credit_balance
     }
 
+# [NEW] 텍스트 채팅만 (빠른 응답용, 무료)
+@app.post("/chat/text", response_model=schemas.ChatTextResponse)
+async def chat_text_only(
+    request: schemas.ChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 모델 확인
+    voice_model = db.query(models.VoiceModel).filter(models.VoiceModel.id == request.voice_model_id).first()
+    if not voice_model:
+        raise HTTPException(status_code=404, detail="보이스 모델을 찾을 수 없습니다.")
+
+    # 2. Gemini에게 답변 받기
+    if not GEMINI_API_KEY:
+         raise HTTPException(status_code=500, detail="서버에 Gemini API 키가 설정되지 않았습니다.")
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = f"당신은 '{voice_model.model_name}'라는 캐릭터입니다. 캐릭터의 말투를 사용하여 사용자의 말에 대해 50자 이내로 짧고 자연스럽게 한국어로 대답해주세요.\n사용자: {request.text}"
+        
+        response = model.generate_content(prompt)
+        reply_text = response.text
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Gemini 오류: {str(e)}")
+
+    # 3. 로그 저장 (무료라도 기록은 남김)
+    # 히스토리에는 오디오가 없으므로 'text_content'만 저장하거나, 별도 로그로 남길 수 있습니다.
+    # 여기선 CreditLog만 남기되 금액은 0
+    log_use = models.CreditLog(
+        user_id=current_user.id,
+        amount=0,
+        transaction_type="CHAT_TEXT",
+        description=f"AI 대화(텍스트) (모델: {voice_model.model_name})",
+        reference_id=voice_model.id
+    )
+    db.add(log_use)
+    db.commit()
+
+    return {
+        "reply_text": reply_text,
+        "remaining_credits": current_user.credit_balance
+    }
+
 # [NEW] 내부 전용 TTS 처리 함수 (채팅에서도 쓰려고 분리)
 def _internal_tts_process(text: str, voice_model_path: str, user_id: int) -> str:
     payload = {

@@ -561,7 +561,8 @@ export async function synthesizeTts(payload, { directEngine = false } = {}) {
 }
 
 export async function chatWithBot(payload) {
-  return requestJson(`${APP_API_BASE_URL}/chat`, {
+  // [NEW] 텍스트만 먼저 받기 위해 /chat/text 엔드포인트 사용
+  return requestJson(`${APP_API_BASE_URL}/chat/text`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })

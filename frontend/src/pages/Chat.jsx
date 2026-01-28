@@ -342,22 +342,15 @@ function ChatPage() {
     try {
       let botText = ''
       try {
-        if (GEMINI_API_KEY) {
-          botText = await fetchGeminiReply(message)
-        } else {
-          const storedEmail =
-            (typeof window !== 'undefined' && localStorage.getItem('email')) || ''
-          const storedNickname =
-            (typeof window !== 'undefined' && localStorage.getItem('nickname')) || ''
-          const username = storedEmail || storedNickname || 'guest'
-          const response = await chatWithBot({
-            username,
-            voice_model_id: selectedVoice,
-            text: message,
-            message,
-          })
-          botText = response?.reply || ''
-        }
+        const username = 'user' // 백엔드에서 토큰으로 유저 식별하므로 임의 값
+        const response = await chatWithBot({
+          username,
+          voice_model_id: selectedVoice,
+          text: message,
+          message,
+        })
+        botText = response?.reply_text || response?.reply || ''
+        
         if (!botText) {
           throw new Error('AI 응답이 비어 있습니다.')
         }
@@ -369,57 +362,87 @@ function ChatPage() {
           throw error
         }
       }
+      const newBotMessage = { role: 'bot', text: botText, audioUrl: null, isLoading: true }
+      
       setChatHistory((prev) => [
         ...prev,
         { role: 'user', text: message },
-        { role: 'bot', text: botText },
+        newBotMessage,
       ])
       setMessage('')
+      
       if (!selectedVoice) {
         setStatus('TTS 보이스를 선택하세요.')
+        setChatHistory(prev => prev.map((item, idx) => 
+          idx === prev.length - 1 ? { ...item, isLoading: false } : item
+        ))
         return
       }
-      try {
-        const voiceIdValue = Number(selectedVoice)
-        const voiceModelId = Number.isFinite(voiceIdValue)
-          ? voiceIdValue
-          : selectedVoice
-        const trySynthesize = async () =>
-          synthesizeTts({
-            text: botText,
-            voice_model_id: voiceModelId,
-          })
-        let blob
-        let retried = false
-        while (true) {
-          try {
-            blob = await trySynthesize()
-            break
-          } catch (ttsError) {
-            const message = String(ttsError?.message || '')
-            const isInsufficient =
-              message.includes('잔액 부족') || message.toLowerCase().includes('insufficient')
-            if (!retried && isInsufficient) {
-              await chargeCredits(CHARGE_AMOUNT)
-              await syncCredits({ allowDecrease: false })
-              retried = true
-              continue
+
+      // [NEW] TTS 비동기 요청 시작
+      (async () => {
+        try {
+          const voiceIdValue = Number(selectedVoice)
+          const voiceModelId = Number.isFinite(voiceIdValue)
+            ? voiceIdValue
+            : selectedVoice
+            
+          const trySynthesize = async () =>
+            synthesizeTts({
+              text: botText,
+              voice_model_id: voiceModelId,
+            })
+            
+          let blob
+          let retried = false
+          while (true) {
+            try {
+              blob = await trySynthesize()
+              break
+            } catch (ttsError) {
+              const message = String(ttsError?.message || '')
+              const isInsufficient =
+                message.includes('잔액 부족') || message.toLowerCase().includes('insufficient')
+              if (!retried && isInsufficient) {
+                await chargeCredits(CHARGE_AMOUNT)
+                await syncCredits({ allowDecrease: false })
+                retried = true
+                continue
+              }
+              throw ttsError
             }
-            throw ttsError
           }
+          
+          const nextUrl = URL.createObjectURL(blob)
+          
+          // [NEW] 히스토리에 오디오 URL 업데이트
+          setChatHistory(prev => {
+             const updated = [...prev]
+             const lastIdx = updated.length - 1
+             if (lastIdx >= 0 && updated[lastIdx].role === 'bot' && updated[lastIdx].text === botText) {
+                 updated[lastIdx] = { ...updated[lastIdx], audioUrl: nextUrl, isLoading: false }
+             }
+             return updated
+          })
+
+          setAudioUrl(nextUrl)
+          if (audioRef.current) {
+            audioRef.current.pause()
+          }
+          audioRef.current = new Audio(nextUrl)
+          audioRef.current.onended = () => setIsPaused(false)
+          audioRef.current.play().catch(() => {})
+          setIsPaused(false)
+          
+        } catch (ttsError) {
+          setStatus(`TTS 실패: ${ttsError.message}`)
+           // 에러 시 로딩 상태 해제
+           setChatHistory(prev => prev.map((item, idx) => 
+             idx === prev.length - 1 ? { ...item, isLoading: false } : item
+           ))
         }
-        const nextUrl = URL.createObjectURL(blob)
-        setAudioUrl(nextUrl)
-        if (audioRef.current) {
-          audioRef.current.pause()
-        }
-        audioRef.current = new Audio(nextUrl)
-        audioRef.current.onended = () => setIsPaused(false)
-        audioRef.current.play().catch(() => {})
-        setIsPaused(false)
-      } catch (ttsError) {
-        setStatus(`TTS 실패: ${ttsError.message}`)
-      }
+      })() // Fire and forget (don't await here to unlock UI)
+
     } catch (error) {
       if (spent) {
         addCredits(10)
@@ -459,8 +482,31 @@ function ChatPage() {
     setBotName(nextName.trim() || botName)
   }
 
-  const handlePlayBotTts = async (text) => {
+  // [MODIFIED] 아이템 전체를 받아서 처리 (캐시된 오디오 사용)
+  const handlePlayBotTts = async (item) => {
+    const text = item.text
     if (!text.trim()) return
+
+    // 1. 이미 오디오가 있다면 바로 재생
+    if (item.audioUrl) {
+       setAudioUrl(item.audioUrl)
+       if (audioRef.current) {
+         audioRef.current.pause()
+       }
+       audioRef.current = new Audio(item.audioUrl)
+       audioRef.current.onended = () => setIsPaused(false)
+       audioRef.current.play().catch(() => {})
+       setIsPaused(false)
+       return
+    }
+
+    // 2. 로딩 중이면 무시 (또는 알림)
+    if (item.isLoading) {
+        setStatus('음성을 생성하고 있습니다. 잠시만 기다려주세요.')
+        return
+    }
+
+    // 3. 없으면 새로 생성 (기존 로직)
     try {
       if (!selectedVoice) {
         setStatus('TTS 보이스를 선택하세요.')
@@ -496,6 +542,12 @@ function ChatPage() {
         }
       }
       const nextUrl = URL.createObjectURL(blob)
+      
+      // [NEW] 생성된 오디오 URL 저장 (다음에 클릭 시 바로 재생)
+      setChatHistory(prev => prev.map(msg => 
+          msg === item ? { ...msg, audioUrl: nextUrl } : msg
+      ))
+
       setAudioUrl(nextUrl)
       if (audioRef.current) {
         audioRef.current.pause()
@@ -587,7 +639,7 @@ function ChatPage() {
               <div
                 className="chat-content"
                 onClick={
-                  item.role === 'bot' ? () => handlePlayBotTts(item.text) : undefined
+                  item.role === 'bot' ? () => handlePlayBotTts(item) : undefined
                 }
                 role={item.role === 'bot' ? 'button' : undefined}
                 tabIndex={item.role === 'bot' ? 0 : undefined}
@@ -595,12 +647,16 @@ function ChatPage() {
                   if (item.role !== 'bot') return
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    handlePlayBotTts(item.text)
+                    handlePlayBotTts(item)
                   }
                 }}
               >
                 <strong>{item.role === 'user' ? '나' : botName}</strong>
                 <p>{item.text}</p>
+                {/* [NEW] 로딩 인디케이터 */ }
+                {item.isLoading ? ( 
+                   <span style={{ fontSize: '0.8em', color: '#888' }}> (음성 생성 중...)</span> 
+                ) : null}
               </div>
               {item.role === 'bot' ? (
                 <button
@@ -611,50 +667,8 @@ function ChatPage() {
                   {isPaused ? '재생' : '일시정지'}
                 </button>
               ) : null}
-            </div>
-          ))}
-        </div>
-        <div className="divider" />
-        <Field label="메시지">
-          <div className="chat-input-row">
-            <div className="chat-input-field">
-              <textarea
-                rows={2}
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder="챗봇에게 보낼 문장을 입력하세요."
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    handleSend()
-                  }
-                }}
-              />
-              <button
-                className={`btn ghost chat-mic chat-mic-inline ${
-                  isListening ? 'listening' : ''
-                }`}
-                type="button"
-                onClick={handleSpeechToggle}
-                aria-pressed={isListening}
-                aria-label="음성 인식으로 입력"
-              >
-                🎤
-              </button>
-            </div>
-            <div className="chat-input-actions">
-              <button
-                className="btn primary chat-send"
-                type="button"
-                onClick={handleSend}
-                disabled={loading}
-              >
-                {loading ? '전송 중...' : '전송'}
-              </button>
-            </div>
-          </div>
-        </Field>
-        {status ? <p className="status">{status}</p> : null}
+
+
       </Section>
     </div>
   )

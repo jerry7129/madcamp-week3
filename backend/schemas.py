@@ -144,3 +144,8 @@ class ChatResponse(BaseModel):
     reply_text: str
     audio_url: str
     remaining_credits: int
+
+# [NEW] 텍스트만 먼저 받는 응답
+class ChatTextResponse(BaseModel):
+    reply_text: str
+    remaining_credits: int

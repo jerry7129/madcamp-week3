@@ -490,7 +490,7 @@ function ChatPage() {
          audioRef.current.pause()
        }
        audioRef.current = new Audio(item.audioUrl)
-       audioRef.current.onended = () => setIsPaused(false)
+       audioRef.current.onended = () => setIsPaused(true)
        audioRef.current.play().catch(() => {})
        setIsPaused(false)
        return

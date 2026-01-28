@@ -62,6 +62,20 @@
   box-shadow: var(--shadow-1);
 }
 
+.auth-card .card {
+  padding: 1.75rem clamp(1.75rem, 3vw, 2.25rem);
+}
+
+.auth-card .form {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.auth-card .login-toggle {
+  padding-inline: 0.25rem;
+}
+
 .app-header {
   display: flex;
   align-items: center;
@@ -110,7 +124,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-left: 1rem;
+  margin-left: auto;
   min-width: 0;
 }
 
@@ -133,9 +147,12 @@
 
 .app-body {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 2rem;
-  padding: 2rem;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: clamp(1.5rem, 2vw, 2.5rem);
+  padding: clamp(1.5rem, 2vw, 2.5rem);
+  max-width: 1600px;
+  margin: 0 auto;
+  width: min(100%, 1600px);
 }
 
 .sidebar {
@@ -255,8 +272,9 @@
 
 .app-main {
   padding: 0;
-  max-width: 1120px;
   width: 100%;
+  max-width: clamp(960px, 72vw, 1400px);
+  margin: 0 auto;
 }
 
 .page {
@@ -407,6 +425,33 @@
 
 .btn.ghost:hover {
   background: rgba(79, 112, 255, 0.08);
+}
+
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(123, 92, 255, 0.35);
+  background: rgba(123, 92, 255, 0.12);
+  color: #d9d9ff;
+  font-weight: 600;
+  transition: transform 120ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.logout-btn:hover {
+  background: rgba(123, 92, 255, 0.22);
+  border-color: rgba(123, 92, 255, 0.6);
+}
+
+.logout-btn:active {
+  transform: translateY(1px);
+}
+
+.logout-icon {
+  font-size: 0.9rem;
+  opacity: 0.9;
 }
 
 .btn.primary {
@@ -4060,6 +4105,11 @@
   .app-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .top-meta {

@@ -72,7 +72,10 @@ function Layout() {
           <span className="brand-sub">Voice TTS Studio</span>
         </div>
         <div className="header-actions">
-          <button className="btn ghost" type="button" onClick={handleLogout}>
+          <button className="btn logout-btn" type="button" onClick={handleLogout}>
+            <span className="logout-icon" aria-hidden="true">
+              ⎋
+            </span>
             로그아웃
           </button>
         </div>

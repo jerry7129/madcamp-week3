@@ -669,6 +669,51 @@ function ChatPage() {
               ) : null}
 
 
+
+            </div>
+          ))}
+        </div>
+        <div className="divider" />
+        <Field label="메시지">
+          <div className="chat-input-row">
+            <div className="chat-input-field">
+              <textarea
+                rows={2}
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="챗봇에게 보낼 문장을 입력하세요."
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    handleSend()
+                  }
+                }}
+              />
+              <button
+                className={`btn ghost chat-mic chat-mic-inline ${
+                  isListening ? 'listening' : ''
+                }`}
+                type="button"
+                onClick={handleSpeechToggle}
+                aria-pressed={isListening}
+                aria-label="음성 인식으로 입력"
+              >
+                🎤
+              </button>
+            </div>
+            <div className="chat-input-actions">
+              <button
+                className="btn primary chat-send"
+                type="button"
+                onClick={handleSend}
+                disabled={loading}
+              >
+                {loading ? '전송 중...' : '전송'}
+              </button>
+            </div>
+          </div>
+        </Field>
+        {status ? <p className="status">{status}</p> : null}
       </Section>
     </div>
   )

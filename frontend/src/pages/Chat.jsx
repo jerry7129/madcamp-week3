@@ -378,21 +378,28 @@ function ChatPage() {
         setChatHistory(prev => prev.map((item, idx) => 
           idx === prev.length - 1 ? { ...item, isLoading: false } : item
         ))
+        setLoading(false) // [MODIFIED] TTS 없으면 바로 로딩 해제
         return
       }
 
       // [NEW] TTS 비동기 요청 시작 (URL 지속성을 위해 JSON 요청 사용)
       (async () => {
         try {
+          const timeoutPromise = new Promise((_, reject) => 
+               setTimeout(() => reject(new Error('TTS Timeout')), 30000)
+          )
+          
           const voiceIdValue = Number(selectedVoice)
           const voiceModelId = Number.isFinite(voiceIdValue)
             ? voiceIdValue
             : selectedVoice
             
-          const result = await generateTts({
+          const apiPromise = generateTts({
             text: botText,
             voice_model_id: voiceModelId,
           })
+
+          const result = await Promise.race([apiPromise, timeoutPromise])
           
           let nextUrl = result?.audio_url || result?.audioUrl || result?.url || ''
           
@@ -400,13 +407,10 @@ function ChatPage() {
              throw new Error('오디오 URL을 찾을 수 없습니다.')
           }
 
-          // 서버 경로(상대경로)인 경우 전체 URL로 변환
           if (nextUrl.startsWith('/')) {
-              // APP_API_BASE_URL이 끝에 슬래시가 있는지 확인 필요하지만 보통 없음
               nextUrl = `${APP_API_BASE_URL}${nextUrl}`
           }
           
-          // [NEW] 히스토리에 오디오 URL 업데이트 (서버 URL 저장)
           setChatHistory(prev => {
              const updated = [...prev]
              const lastIdx = updated.length - 1
@@ -420,7 +424,6 @@ function ChatPage() {
           if (audioRef.current) {
             audioRef.current.pause()
           }
-          // 서버에서 바로 스트리밍/재생
           audioRef.current = new Audio(nextUrl)
           audioRef.current.onended = () => setIsPaused(false)
           audioRef.current.play().catch(() => {})
@@ -428,21 +431,22 @@ function ChatPage() {
           
         } catch (ttsError) {
           setStatus(`TTS 실패: ${ttsError.message}`)
-           // 에러 시 로딩 상태 해제
            setChatHistory(prev => prev.map((item, idx) => 
              idx === prev.length - 1 ? { ...item, isLoading: false } : item
            ))
+        } finally {
+            setLoading(false) // [MODIFIED] TTS 완료/실패 후 로딩 해제
         }
-      })() // Fire and forget
+      })() 
 
     } catch (error) {
       if (spent) {
         addCredits(10)
       }
       setStatus(`대화 실패: ${error.message}`)
-    } finally {
-      setLoading(false)
-    }
+      setLoading(false) // [MODIFIED] 텍스트 생성 실패 시 로딩 해제
+    } 
+    // finally { setLoading(false) } // [REMOVED] 여기서 해제하지 않음
   }
 
   const handleClearChat = () => {
@@ -509,6 +513,12 @@ function ChatPage() {
       const voiceModelId = Number.isFinite(voiceIdValue)
         ? voiceIdValue
         : selectedVoice
+
+      // [NEW] 로딩 상태 표시 시작
+      setChatHistory(prev => prev.map(msg => 
+          msg === item ? { ...msg, isLoading: true } : msg
+      ))
+
       const result = await generateTts({
         text,
         voice_model_id: voiceModelId,

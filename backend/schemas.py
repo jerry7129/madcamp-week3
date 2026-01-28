@@ -25,6 +25,11 @@ class UserUpdate(BaseModel):
     profile_image: Optional[str] = None
     # password 수정은 별도 로직 권장하지만 필요시 추가 가능
 
+# [NEW] 업데이트 응답 (토큰 갱신 포함)
+class UserUpdateResponse(UserResponse):
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+
 class Token(BaseModel):
     access_token: str
     token_type: str

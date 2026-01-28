@@ -164,7 +164,7 @@ def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
 # [NEW] 유저 정보 수정 (프로필 사진 포함)
-@app.put("/users/me", response_model=schemas.UserResponse)
+@app.put("/users/me", response_model=schemas.UserUpdateResponse)
 async def update_users_me(
     username: Optional[str] = Form(None),
     nickname: Optional[str] = Form(None),
@@ -173,6 +173,8 @@ async def update_users_me(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    is_username_changed = False
+
     # 1. 아이디(이메일) 변경 시 비밀번호 검증 및 중복 체크
     if username and username != current_user.username:
         # 비밀번호 확인
@@ -183,6 +185,7 @@ async def update_users_me(
         if existing:
             raise HTTPException(status_code=400, detail="이미 존재하는 아이디(이메일)입니다.")
         current_user.username = username
+        is_username_changed = True
         
     # 2. 닉네임 변경
     if nickname is not None:
@@ -194,11 +197,7 @@ async def update_users_me(
             user_profile_dir = os.path.join(STATIC_DIR, "profiles", str(current_user.id))
             os.makedirs(user_profile_dir, exist_ok=True)
             
-            # 기존 이미지 삭제 (용량 관리) - 선택사항이지만 권장
-            # (여기서는 덮어쓰기 로직이므로 생략하거나, 파일명이 다르면 삭제 로직 추가 가능)
-            
             file_ext = os.path.splitext(profile_image.filename)[1] or ".png"
-            # 캐시 방지를 위해 난수/시간 추가
             filename = f"profile_{uuid.uuid4().hex[:8]}{file_ext}"
             save_path = os.path.join(user_profile_dir, filename)
             
@@ -212,7 +211,28 @@ async def update_users_me(
 
     db.commit()
     db.refresh(current_user)
-    return current_user
+
+    # 토큰 갱신 (ID가 바뀌었으므로 기존 토큰 무효화됨)
+    new_token = None
+    token_type = None
+    if is_username_changed:
+        new_token = create_access_token(
+            data={"sub": current_user.username, "role": current_user.role},
+            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        token_type = "bearer"
+
+    return schemas.UserUpdateResponse(
+        id=current_user.id,
+        username=current_user.username,
+        nickname=current_user.nickname,
+        role=current_user.role,
+        credit_balance=current_user.credit_balance,
+        profile_image=current_user.profile_image,
+        created_at=current_user.created_at,
+        access_token=new_token,
+        token_type=token_type
+    )
 
 # [NEW] 가위바위보 게임 API
 @app.post("/game/rps")

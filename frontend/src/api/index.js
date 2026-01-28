@@ -193,7 +193,14 @@ export async function updateProfile(payload) {
        throw new Error(message || '프로필 수정 실패')
     }
   }
-  return response.json()
+  const data = await response.json()
+  if (data.access_token) {
+     if (typeof window !== 'undefined') {
+        localStorage.setItem('token', data.access_token)
+        localStorage.setItem('access_token', data.access_token)
+     }
+  }
+  return data
 }
 
 export async function fetchMe() {

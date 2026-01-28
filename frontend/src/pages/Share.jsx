@@ -162,6 +162,7 @@ function SharePage() {
   const [previewLoadingId, setPreviewLoadingId] = useState(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [previewVoiceId, setPreviewVoiceId] = useState(null)
+  const [previewIsPlaying, setPreviewIsPlaying] = useState(false) // [NEW] 재생 상태 추적
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
   const audioSourceRef = useRef(null)
@@ -476,14 +477,23 @@ function SharePage() {
     if (previewLoadingId) return
     const resolvedId = voice.modelId || getVoiceModelId(voice.raw || voice)
     
+    // [NEW] Toggle Logic
+    if (previewVoiceId === voice.id && audioRef.current) {
+         if (audioRef.current.paused) {
+             // 끝났거나 일시정지 상태면 재생
+             audioRef.current.play().catch(() => {})
+             setPreviewIsPlaying(true)
+         } else {
+             // 재생 중이면 일시정지
+             audioRef.current.pause()
+             setPreviewIsPlaying(false)
+         }
+         return
+    }
+
     // [NEW] 1. 미리 만들어진 샘플이 있는지 확인 (TTS 생성 없이 즉시 재생)
     const existingSample = extractRefAudioPath(voice.raw || voice)
     if (existingSample) {
-        if (previewUrl === existingSample && previewVoiceId === voice.id && audioRef.current && !audioRef.current.paused) {
-            audioRef.current.pause()
-            return
-        }
-        
         setPreviewLoadingId(voice.id)
         setStatus('샘플 로딩 중...')
         
@@ -491,7 +501,7 @@ function SharePage() {
             audioRef.current.pause()
         }
         if (previewUrl && previewUrl !== existingSample) {
-             // URL.revokeObjectURL(previewUrl) // Don't revoke remote URLs usually, but if blob check needed
+             // URL.revokeObjectURL(previewUrl) 
         }
 
         setPreviewUrl(existingSample)
@@ -502,9 +512,22 @@ function SharePage() {
         }
         audioRef.current.src = existingSample
         audioRef.current.muted = false
-        audioRef.current.onended = () => setStatus(null)
-        audioRef.current.onplay = () => setStatus('샘플 보이스 재생 중...')
-        audioRef.current.onerror = () => setStatus('재생 실패 (권한 혹은 파일 없음)')
+        // [MODIFIED] 이벤트 핸들러에서 상태 업데이트
+        audioRef.current.onended = () => {
+             setStatus(null)
+             setPreviewIsPlaying(false) // 끝났으므로 false
+        }
+        audioRef.current.onplay = () => {
+             setStatus('샘플 보이스 재생 중...')
+             setPreviewIsPlaying(true)
+        }
+        audioRef.current.onpause = () => {
+             setPreviewIsPlaying(false)
+        }
+        audioRef.current.onerror = () => {
+             setStatus('재생 실패 (권한 혹은 파일 없음)')
+             setPreviewIsPlaying(false)
+        }
         
         try {
             await audioRef.current.play()
@@ -542,27 +565,32 @@ function SharePage() {
       }
       setPreviewUrl(nextUrl)
       setPreviewVoiceId(voice.id)
-      try {
-        await playWithAudioContext(blob)
-        setStatus('샘플 보이스 재생 중...')
-      } catch {
-        if (!audioRef.current) {
+      
+      // [MODIFIED] 여기도 동일하게 Audio 제어
+      if (!audioRef.current) {
           audioRef.current = new Audio()
-        }
-        audioRef.current.src = nextUrl
-        audioRef.current.muted = false
-        audioRef.current.onended = () => setStatus(null)
-        audioRef.current.onplay = () => setStatus('샘플 보이스 재생 중...')
-        audioRef.current.onerror = () => setStatus('샘플 보이스 재생에 실패했습니다.')
-        audioRef.current
-          .play()
-          .then(() => {
-            setStatus('샘플 보이스 재생 중...')
-          })
-          .catch(() => {
-            setStatus('샘플 보이스 재생에 실패했습니다.')
-          })
       }
+      audioRef.current.src = nextUrl
+      audioRef.current.muted = false
+      audioRef.current.onended = () => {
+             setStatus(null)
+             setPreviewIsPlaying(false)
+      }
+      audioRef.current.onplay = () => {
+             setStatus('샘플 보이스 재생 중...')
+             setPreviewIsPlaying(true)
+      }
+      audioRef.current.onpause = () => {
+             setPreviewIsPlaying(false) 
+      }
+      audioRef.current.onerror = () => {
+             setStatus('샘플 보이스 재생에 실패했습니다.')
+             setPreviewIsPlaying(false)
+      }
+
+      audioRef.current.play()
+        .catch(() => setStatus('샘플 보이스 재생에 실패했습니다.'))
+      
     } catch (error) {
       const message = String(error?.message || '')
       const refAudioPath = extractRefAudioPath(voice.raw || voice)
@@ -591,34 +619,44 @@ function SharePage() {
           }
           setPreviewUrl(nextUrl)
           setPreviewVoiceId(voice.id)
-          try {
-            await playWithAudioContext(blob)
-            setStatus('샘플 보이스 재생 중...')
-          } catch {
-            if (!audioRef.current) {
-              audioRef.current = new Audio()
-            }
-            audioRef.current.src = nextUrl
-            audioRef.current.muted = false
-            audioRef.current.onended = () => setStatus(null)
-            audioRef.current.onplay = () => setStatus('샘플 보이스 재생 중...')
-            audioRef.current.onerror = () => setStatus('샘플 보이스 재생에 실패했습니다.')
-            audioRef.current
-              .play()
-              .then(() => {
-                setStatus('샘플 보이스 재생 중...')
-              })
-              .catch(() => {
-                setStatus('샘플 보이스 재생에 실패했습니다.')
-              })
+          // [MODIFIED] Fallback block audio control
+          if (!audioRef.current) {
+            audioRef.current = new Audio()
           }
+          audioRef.current.src = nextUrl
+          audioRef.current.muted = false
+          audioRef.current.onended = () => {
+            setStatus(null)
+            setPreviewIsPlaying(false)
+          }
+          audioRef.current.onplay = () => {
+            setStatus('샘플 보이스 재생 중...')
+            setPreviewIsPlaying(true)
+          }
+          audioRef.current.onpause = () => {
+            setPreviewIsPlaying(false)
+          }
+          audioRef.current.onerror = () => {
+            setStatus('샘플 보이스 재생에 실패했습니다.')
+            setPreviewIsPlaying(false)
+          }
+          audioRef.current
+            .play()
+            .then(() => {
+              setStatus('샘플 보이스 재생 중...')
+            })
+            .catch(() => {
+              setStatus('샘플 보이스 재생에 실패했습니다.')
+            })
           return
         } catch (fallbackError) {
           setStatus(`미리듣기 실패: ${fallbackError.message}`)
+          setPreviewIsPlaying(false)
           return
         }
       }
       setStatus(`미리듣기 실패: ${message}`)
+      setPreviewIsPlaying(false)
     } finally {
       setPreviewLoadingId(null)
     }
@@ -680,7 +718,7 @@ function SharePage() {
                       aria-label="샘플 보이스 미리듣기"
                       title="샘플 보이스 미리듣기"
                     >
-                      {isPreviewLoading ? '⏳' : '🔊'}
+                      {isPreviewLoading ? '⏳' : (previewIsPlaying && previewVoiceId === voice.id ? '⏸️' : '🔊')}
                     </button>
                   </div>
                   <div className="mid">
@@ -707,16 +745,19 @@ function SharePage() {
                       )}
                     </div>
                     <div className="audioLine">
-                      {previewUrl && previewVoiceId === voice.id ? (
-                        <div className="audioPlayerWrap">
-                          <audio className="share-audio" controls src={previewUrl} />
-                        </div>
-                      ) : null}
+                       {/* [MODIFIED] 재생바 제거 요청으로 인해 Visible Audio Player 제거 */}
+                       {/*
+                       {previewUrl && previewVoiceId === voice.id ? (
+                         <div className="audioPlayerWrap">
+                           <audio className="share-audio" controls src={previewUrl} />
+                         </div>
+                       ) : null}
+                       */}
+                       {voice.subtitle && voice.subtitle !== '설명 없음' ? (
+                         <div className="description">{voice.subtitle}</div>
+                       ) : null}
                     </div>
                     <div className="metaLine">
-                      {voice.subtitle && voice.subtitle !== '설명 없음' ? (
-                        <div className="share-desc">{voice.subtitle}</div>
-                      ) : null}
                       <div className="share-price">
                         {voice.price > 0 ? `가격: ${voice.price} 크레딧` : '무료'}
                       </div>

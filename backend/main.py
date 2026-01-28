@@ -1246,15 +1246,7 @@ async def chat_with_voice(
         "audio_url": audio_url,
         "remaining_credits": current_user.credit_balance
     }
-            "audio_url": history.audio_url,
-            "cost": COST,
-            "remaining_credit": current_user.credit_balance
-        }
 
-    except Exception as e:
-        db.rollback() 
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail="생성 중 오류가 발생했습니다.")
 
 # 충전 (테스트용)
 @app.post("/charge")
